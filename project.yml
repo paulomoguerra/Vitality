@@ -35,11 +35,17 @@ targets:
         LSUIElement: true
         CFBundleDisplayName: Vitality
         NSHumanReadableCopyright: ""
+        # Read at runtime so no team ID is hardcoded in source. See AppGroup.id.
+        VitalityAppGroup: $(DEVELOPMENT_TEAM).group.com.paulomateus.vitality
     entitlements:
       path: Vitality/Vitality.entitlements
       properties:
+        # macOS requires App Group identifiers to be prefixed with the team ID.
+        # The bare "group.*" form is the iOS convention; on macOS group
+        # containers are TCC-protected and containermanagerd rejects any
+        # requestor whose signature doesn't match the prefix.
         com.apple.security.application-groups:
-          - group.com.paulomateus.vitality
+          - $(DEVELOPMENT_TEAM).group.com.paulomateus.vitality
     dependencies:
       - target: VitalityWidget
         embed: true
@@ -57,6 +63,7 @@ targets:
       path: VitalityWidget/Info.plist
       properties:
         CFBundleDisplayName: Vitality Widgets
+        VitalityAppGroup: $(DEVELOPMENT_TEAM).group.com.paulomateus.vitality
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     entitlements:
@@ -64,7 +71,7 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
-          - group.com.paulomateus.vitality
+          - $(DEVELOPMENT_TEAM).group.com.paulomateus.vitality
 
 schemes:
   Vitality:

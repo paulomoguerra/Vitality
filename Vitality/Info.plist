@@ -24,5 +24,7 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
+	<key>VitalityAppGroup</key>
+	<string>$(DEVELOPMENT_TEAM).group.com.paulomateus.vitality</string>
 </dict>
 </plist>

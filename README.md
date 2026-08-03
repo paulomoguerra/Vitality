@@ -1,10 +1,28 @@
 # Vitality
 
-A native macOS menu bar app and Notification Centre widget that shows your Mac's vital signs at a glance.
+A native macOS menu bar app, dashboard, and Notification Centre widget that shows your Mac's vital signs at a glance — and lets you act on them.
 
-Vitality is a small, native front end for [Mole](https://github.com/tw93/Mole) — a terminal tool that does the actual system inspection. Mole does the measuring; Vitality makes it glanceable.
+Vitality is a small, native front end for [Mole](https://github.com/tw93/Mole) — a terminal tool that does the system inspection. Mole does the measuring; Vitality makes it glanceable and clickable.
 
-**Shows:** health score · CPU · memory · disk · power draw · battery · top CPU process
+## What it does
+
+**Menu bar** — health score, CPU, memory, disk, power draw, battery, and top process. Every row with more to say is clickable:
+
+| Row | Opens |
+|---|---|
+| CPU | Per-core usage bars, chip, P/E core split, 1/5/15-minute load averages scaled to core count |
+| Memory | In use / available / cached / total, plus swap — with a warning when your Mac is swapping heavily |
+| Disk | Every volume with free space and SMART state |
+| Power / Battery | System draw, adapter, fan, plus battery health, max capacity and cycle count |
+| Top process | The five heaviest processes with PID and memory |
+
+**Dashboard** (`Open Dashboard…`) — three tabs:
+
+- **Overview** — health ring, machine summary, uptime, and the four key metrics
+- **Processes** — the full process table, filterable and sortable by CPU, memory or name. Quit or Force Quit anything you own.
+- **Storage** — every volume, plus a size-sorted file browser you can drill into. Reveal in Finder, or move items to the Trash.
+
+**Widgets** — small, medium and large, in Notification Centre and on the desktop.
 
 ## Requirements
 
@@ -17,9 +35,21 @@ brew install mole
 
 Vitality does **not** bundle Mole. You install it yourself, and Vitality runs it.
 
-## Build from source
+## Install
 
-There are no binary releases yet — build it locally.
+Build the disk image:
+
+```bash
+./scripts/make-dmg.sh
+```
+
+Then open `build/Vitality-<version>.dmg` and drag Vitality to Applications.
+
+> **Signing:** the DMG is signed with whatever identity your team provides. An *Apple Development* identity is enough to run Vitality on **your own** Mac, but macOS will refuse it on anyone else's. Distributing to other people needs the paid Apple Developer Program, a *Developer ID Application* certificate, and notarisation via `xcrun notarytool`. There is no notarised release yet.
+
+**The widgets need the app to be running.** Vitality registers itself as a login item on first launch, so this normally takes care of itself. To add a widget: right-click the desktop or open Notification Centre → Edit Widgets → search for Vitality.
+
+## Build from source
 
 **1.** Install the tooling:
 
@@ -33,7 +63,7 @@ brew install xcodegen
 cp Local.xcconfig.example Local.xcconfig
 ```
 
-Then edit `Local.xcconfig` and replace `XXXXXXXXXX` with your Team ID (find it at [developer.apple.com/account](https://developer.apple.com/account) → Membership details). This file is gitignored, so no signing identity ends up in the repo.
+Edit `Local.xcconfig` and replace `XXXXXXXXXX` with your Team ID (find it at [developer.apple.com/account](https://developer.apple.com/account) → Membership details). This file is gitignored, so no signing identity ends up in the repo.
 
 **3.** Generate the Xcode project and open it:
 
@@ -41,10 +71,6 @@ Then edit `Local.xcconfig` and replace `XXXXXXXXXX` with your Team ID (find it a
 xcodegen generate
 open Vitality.xcodeproj
 ```
-
-Build and run the `Vitality` scheme. The app has no window — it lives in the menu bar, and registers itself as a login item on first launch.
-
-To add the widget: right-click the desktop → Edit Widgets → search for Vitality. Small, medium, and large sizes are supported.
 
 <details>
 <summary>Building from the command line</summary>
@@ -54,12 +80,12 @@ xcodebuild -project Vitality.xcodeproj -scheme Vitality -configuration Debug \
   -allowProvisioningUpdates build
 ```
 
-`-allowProvisioningUpdates` is needed on the first build so Xcode can register the app IDs and the App Group under your team. Building from the Xcode GUI handles this for you.
+`-allowProvisioningUpdates` is needed whenever bundle IDs or the App Group change, so Xcode can register them under your team.
 
-If that fails with *"tool 'xcodebuild' requires Xcode"*, your `xcode-select` path points at the Command Line Tools rather than a full Xcode. Override it for the one command instead of switching it system-wide:
+If it fails with *"tool 'xcodebuild' requires Xcode"*, your `xcode-select` path points at the Command Line Tools rather than a full Xcode. Override it per-command instead of switching system-wide:
 
 ```bash
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project Vitality.xcodeproj -scheme Vitality -configuration Debug build
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project Vitality.xcodeproj -scheme Vitality -configuration Debug -allowProvisioningUpdates build
 ```
 
 </details>
@@ -73,14 +99,14 @@ mo status --json  ──▶  Vitality (menu bar app)  ──▶  App Group conta
                                               VitalityWidget (WidgetKit)
 ```
 
-The menu bar app runs `mo status --json` every two seconds on a background task, decodes it, and writes the result to a shared App Group container. The widget extension reads that same file on its WidgetKit timeline.
+The app runs `mo status --json` every three seconds on a background task, decodes it, and writes it atomically to a shared App Group container. The widget extension reads that file on its WidgetKit timeline, and the app nudges WidgetKit at most once every 30 seconds — WidgetKit budgets reloads, so asking more often would get Vitality throttled and refresh the widgets *less*.
 
-The menu bar popover is live. The widget refreshes on WidgetKit's schedule (roughly every five minutes) — that budget is controlled by the system, not by Vitality.
+Four design decisions worth being explicit about:
 
-Two design notes worth being explicit about:
-
-- **The app is not sandboxed.** App Sandbox forbids a sandboxed process from executing an external binary that isn't embedded in its own bundle, which would make calling Homebrew's `mo` impossible. The widget extension *is* sandboxed — Apple requires that for all extensions, and it only ever reads the status file.
-- **Status collection lives in the app, not a background daemon.** Vitality is a login item and expected to run continuously, so a separate always-on helper process would be extra machinery for no real gain.
+- **The app is not sandboxed.** App Sandbox forbids executing an external binary that isn't embedded in the app's own bundle, which would make calling Homebrew's `mo` impossible. The widget extension *is* sandboxed — Apple requires that of all extensions — and only ever reads.
+- **The App Group ID is prefixed with the team ID.** macOS requires `TEAMID.group.example.app`; the bare `group.*` form is the iOS convention. Get this wrong and `containermanagerd` rejects the write with a generic "you don't have permission" error that looks nothing like a naming problem. The prefix is injected at build time from `DEVELOPMENT_TEAM`, so no team ID is hardcoded in source.
+- **Process listing and quitting use `ps` and `kill` directly, not Mole.** Mole has no process-management commands, and its `status --json` returns only the top five — too thin to manage anything. Only processes you own can be signalled; that's macOS, not Vitality.
+- **Mole's destructive commands are not automated.** `mo clean`, `purge` and `uninstall` are interactive terminal UIs with no JSON or non-interactive mode. Driving them headlessly would mean screen-scraping a UI that deletes files, so Vitality hands off to Terminal instead. Vitality's own delete path moves items to the **Trash**, never `rm`.
 
 ## Relationship to Mole, and licensing
 

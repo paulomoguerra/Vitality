@@ -6,29 +6,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var poller: StatusPoller!
+    private var dashboard: DashboardWindowController!
     private var eventMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         LoginItem.register()
+
         poller = StatusPoller()
+        dashboard = DashboardWindowController(poller: poller)
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "gauge.medium", accessibilityDescription: "Vitality")
+            button.image = NSImage(systemSymbolName: "gauge.medium",
+                                   accessibilityDescription: "Vitality")
             button.action = #selector(togglePopover(_:))
             button.target = self
         }
 
         popover = NSPopover()
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 240, height: 260)
-        popover.contentViewController = NSHostingController(rootView: MenuBarView(poller: poller))
+        popover.contentViewController = NSHostingController(
+            rootView: MenuBarView(poller: poller, onOpenDashboard: { [weak self] in
+                self?.openDashboard()
+            })
+        )
 
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            if self?.popover.isShown == true {
-                self?.popover.performClose(nil)
-            }
+            guard let self, self.popover.isShown else { return }
+            self.popover.performClose(nil)
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+    }
+
+    private func openDashboard() {
+        // Close the popover first — it's `.transient`, and leaving it up while
+        // a real window takes focus looks like a glitch.
+        popover.performClose(nil)
+        dashboard.show()
     }
 
     @objc private func togglePopover(_ sender: AnyObject?) {
@@ -37,6 +54,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             popover.performClose(sender)
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            // The popover hosts its own SwiftUI content; make it key so text
+            // fields and buttons inside respond to the first click.
+            popover.contentViewController?.view.window?.makeKey()
         }
     }
 }
