@@ -39,9 +39,7 @@ struct MenuBarView: View {
 
     @ViewBuilder
     private var rootPane: some View {
-        if let error = poller.lastError, poller.latest == nil {
-            errorState(error)
-        } else if let status = poller.latest {
+        if let status = poller.latest {
             MenuRow(icon: "heart.fill",
                     label: "Health",
                     value: "\(status.healthScore.map(String.init) ?? "—") · \(status.healthScoreMsg ?? "—")",
@@ -51,11 +49,9 @@ struct MenuBarView: View {
                     value: Fmt.percent(status.cpu?.usage, decimals: 1),
                     action: { pane = .cpu })
 
-            if let gpu = status.measuredGPU, gpu.utilization != nil {
-                MenuRow(icon: "cpu.fill", label: "GPU",
-                        value: Fmt.percent(gpu.utilization, decimals: 1),
-                        action: { pane = .gpu })
-            }
+            MenuRow(icon: "cpu.fill", label: "GPU",
+                    value: Fmt.percent(status.gpu?.utilization, decimals: 1),
+                    action: { pane = .gpu })
 
             MenuRow(icon: "memorychip", label: "Memory",
                     value: Fmt.percent(status.memory?.usedPercent, decimals: 1),
@@ -65,8 +61,8 @@ struct MenuBarView: View {
                     value: "\(Fmt.percent(status.primaryDisk?.usedPercent)) used",
                     action: { pane = .storage })
 
-            MenuRow(icon: "bolt.fill", label: "Power draw",
-                    value: Fmt.watts(status.thermal?.systemPower),
+            MenuRow(icon: "bolt.fill", label: status.headlinePowerLabel,
+                    value: Fmt.watts(status.headlinePower),
                     action: { pane = .power })
 
             if let battery = status.battery {
@@ -105,30 +101,6 @@ struct MenuBarView: View {
         case ..<90:  return "battery.75"
         default:     return "battery.100"
         }
-    }
-
-    @ViewBuilder
-    private func errorState(_ error: MoleError) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Can't read system status", systemImage: "exclamationmark.triangle.fill")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.orange)
-            Text(error.localizedDescription)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if error == .notInstalled {
-                Button("Install Mole…") {
-                    MoleCLI.installMole()
-                }
-                .font(.system(size: 11))
-            }
-        }
-        .padding(.horizontal, 14).padding(.vertical, 8)
-
-        Divider().padding(.vertical, 5)
-        footer(status: nil)
     }
 
     @ViewBuilder

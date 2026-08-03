@@ -105,11 +105,9 @@ struct MediumStatusView: View {
             }
 
             HStack {
-                Label(Fmt.watts(status?.thermal?.systemPower), systemImage: "bolt.fill")
-                if let gpu = status?.measuredGPU, gpu.utilization != nil {
-                    Spacer()
-                    Label("GPU \(Fmt.percent(gpu.utilization))", systemImage: "cpu.fill")
-                }
+                Label(Fmt.watts(status?.headlinePower), systemImage: "bolt.fill")
+                Spacer()
+                Label("GPU \(Fmt.percent(status?.gpu?.utilization))", systemImage: "cpu.fill")
                 Spacer()
                 if let battery = status?.battery {
                     Label("\(battery.percent.map { "\($0)%" } ?? "—")", systemImage: "battery.100")
@@ -171,9 +169,9 @@ struct LargeStatusView: View {
             ], spacing: 13) {
                 metric("CPU", Fmt.percent(status?.cpu?.usage), status?.cpu?.usage,
                        sub: "\(status?.cpu?.coreCount.map(String.init) ?? "—") cores")
-                metric("GPU", Fmt.percent(status?.measuredGPU?.utilization),
-                       status?.measuredGPU?.utilization,
-                       sub: status?.measuredGPU?.inUseMemory.map { "\(Fmt.bytes($0)) used" } ?? "—")
+                metric("GPU", Fmt.percent(status?.gpu?.utilization),
+                       status?.gpu?.utilization,
+                       sub: status?.gpu?.inUseMemory.map { "\(Fmt.bytes($0)) used" } ?? "—")
                 metric("Memory", Fmt.percent(status?.memory?.usedPercent), status?.memory?.usedPercent,
                        sub: "\(Fmt.bytes(status?.memory?.used)) used")
                 metric("Disk", Fmt.percent(status?.primaryDisk?.usedPercent), status?.primaryDisk?.usedPercent,
@@ -184,7 +182,7 @@ struct LargeStatusView: View {
             // above. As a fifth grid cell it sat alone next to a dead hole.
             HStack(spacing: 5) {
                 Image(systemName: "bolt.fill").font(.system(size: 9))
-                Text(Fmt.watts(status?.thermal?.systemPower))
+                Text(Fmt.watts(status?.headlinePower))
                     .font(.system(size: 11, weight: .medium))
                 if let battery = status?.battery {
                     Text("·").foregroundStyle(.tertiary)

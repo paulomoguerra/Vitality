@@ -34,17 +34,8 @@ enum Fmt {
         return load / Double(cores) * 100
     }
 
-    static func relativeTime(from iso: String?) -> String {
-        guard let iso else { return "—" }
-        let parser = ISO8601DateFormatter()
-        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let date = parser.date(from: iso) ?? {
-            let fallback = ISO8601DateFormatter()
-            fallback.formatOptions = [.withInternetDateTime]
-            return fallback.date(from: iso)
-        }()
+    static func relativeTime(from date: Date?) -> String {
         guard let date else { return "—" }
-
         let elapsed = Int(Date().timeIntervalSince(date))
         if elapsed < 2 { return "just now" }
         if elapsed < 60 { return "\(elapsed)s ago" }

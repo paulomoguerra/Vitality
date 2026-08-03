@@ -27,7 +27,7 @@ struct StorageView: View {
             browser
         }
         .confirmationDialog(
-            pendingTrash.map { "Move “\($0.displayName)” to Trash?" } ?? "Move to Trash?",
+            pendingTrash.map { "Move “\($0.name)” to Trash?" } ?? "Move to Trash?",
             isPresented: Binding(get: { pendingTrash != nil },
                                  set: { if !$0 { pendingTrash = nil } }),
             titleVisibility: .visible
@@ -56,26 +56,22 @@ struct StorageView: View {
                 Text("Volumes").font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("Free up space with Mole…") {
-                    if case .failure(let error) = MoleCLI.runInTerminal("clean") {
-                        actionError = error.message
-                    }
-                }
-                .font(.system(size: 11))
-                .help("Opens Terminal and runs `mo clean`. Mole's cleanup is an interactive tool, so Vitality hands off rather than driving a UI that deletes files.")
+                Button("Open Trash") { DiskAnalyzer.openTrash() }
+                    .font(.system(size: 11))
+                    .help("Emptying the Trash is irreversible, so Vitality hands that to Finder rather than doing it for you.")
             }
 
             if (poller.latest?.userDisks ?? []).isEmpty {
-                Text("Waiting for volume data…")
+                Text("Reading volumes…")
                     .font(.system(size: 11)).foregroundStyle(.tertiary)
             } else {
                 ForEach(poller.latest?.userDisks ?? []) { disk in
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
-                            Text(volumeName(disk))
+                            Text(disk.displayName)
                                 .font(.system(size: 12, weight: .medium))
                                 .lineLimit(1).truncationMode(.middle)
-                            if disk.external == true {
+                            if disk.isInternal == false {
                                 Text("external").font(.system(size: 9)).foregroundStyle(.tertiary)
                             }
                             Spacer()
@@ -133,8 +129,8 @@ struct StorageView: View {
             content
         }
         .onAppear {
-            // Scan once on first open. Guarded by a flag rather than
-            // `entries.isEmpty`, or every tab switch re-triggers a full scan.
+            // Guarded by a flag rather than `entries.isEmpty`, or every tab
+            // switch would kick off another full scan.
             guard !didAutoScan else { return }
             didAutoScan = true
             analyze(root, resetBreadcrumb: true)
@@ -146,10 +142,12 @@ struct StorageView: View {
         if isAnalyzing && entries.isEmpty {
             centered {
                 ProgressView()
-                Text("Scanning \((path as NSString).lastPathComponent)…")
+                Text("Measuring \((path as NSString).lastPathComponent)…")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
-                Text("Large folders can take a while — Mole walks the whole tree.")
+                Text("Folder sizes mean walking every file inside them, so large folders take a moment.")
                     .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         } else if let analyzeError {
             centered {
@@ -180,13 +178,13 @@ struct StorageView: View {
             Table(sortedEntries, sortOrder: $sort) {
                 TableColumn("Name", value: \.sortName) { entry in
                     HStack(spacing: 5) {
-                        Image(systemName: entry.isDir == true ? "folder.fill" : "doc")
+                        Image(systemName: entry.isDirectory ? "folder.fill" : "doc")
                             .font(.system(size: 10)).foregroundStyle(.secondary)
-                        Text(entry.displayName).font(.system(size: 12)).lineLimit(1)
+                        Text(entry.name).font(.system(size: 12)).lineLimit(1)
                     }
                 }
                 TableColumn("Kind", value: \.sortKind) { entry in
-                    Text(entry.isDir == true ? "Folder" : "File")
+                    Text(entry.isDirectory ? "Folder" : "File")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
                 .width(58)
@@ -194,19 +192,14 @@ struct StorageView: View {
                     Text(Fmt.bytes(entry.size)).font(.system(size: 11, weight: .medium))
                 }
                 .width(84)
-                // Bordered rather than plain: as borderless text these ran
-                // together into an unreadable "Open Reveal Trash" with no
-                // indication they were three separate controls.
                 TableColumn("Actions") { entry in
                     HStack(spacing: 6) {
-                        if entry.isDir == true {
-                            Button("Open") { if let p = entry.path { drillInto(p) } }
-                                .help("Scan inside this folder")
+                        if entry.isDirectory {
+                            Button("Open") { drillInto(entry.path) }
+                                .help("Measure inside this folder")
                         }
-                        Button("Reveal") {
-                            if let p = entry.path { DiskAnalyzer.revealInFinder(p) }
-                        }
-                        .help("Show in Finder")
+                        Button("Reveal") { DiskAnalyzer.revealInFinder(entry.path) }
+                            .help("Show in Finder")
                         Button("Trash") { pendingTrash = entry }
                             .help("Move to Trash — recoverable")
                     }
@@ -218,7 +211,7 @@ struct StorageView: View {
             }
             .frame(minHeight: 200)
 
-            Text("Click a column header to sort. Sizes come from Mole's analyzer; deleting moves items to the Trash.")
+            Text("Click a column header to sort. Deleting moves items to the Trash, never straight to `rm`.")
                 .font(.system(size: 10)).foregroundStyle(.tertiary)
         }
     }
@@ -227,18 +220,6 @@ struct StorageView: View {
         VStack(spacing: 6) { inner() }
             .frame(maxWidth: .infinity, minHeight: 200)
             .padding(.horizontal, 30)
-    }
-
-    /// Friendly volume label. A bare "/" tells the user nothing, and long mount
-    /// paths pushed the free-space figures off the row.
-    private func volumeName(_ disk: SystemStatus.Disk) -> String {
-        guard let mount = disk.mount else { return disk.device ?? "—" }
-        if mount == "/" {
-            let name = (try? URL(fileURLWithPath: "/")
-                .resourceValues(forKeys: [.volumeNameKey]).volumeName) ?? nil
-            return name.map { "\($0)  ·  /" } ?? "Startup disk  ·  /"
-        }
-        return (mount as NSString).lastPathComponent
     }
 
     private func isProtected(_ candidate: String) -> Bool {
@@ -263,14 +244,11 @@ struct StorageView: View {
             await MainActor.run {
                 isAnalyzing = false
                 switch result {
-                case .success(let analysis):
-                    // Mole returns largest-first, but sort defensively so the
-                    // view never depends on that staying true.
-                    entries = (analysis.entries ?? [])
-                        .sorted { ($0.size ?? 0) > ($1.size ?? 0) }
+                case .success(let found):
+                    entries = found
                 case .failure(let error):
                     entries = []
-                    analyzeError = error.localizedDescription
+                    analyzeError = error.message
                 }
             }
         }
@@ -299,8 +277,7 @@ struct StorageView: View {
 
     private func trash(_ entry: DiskEntry) {
         pendingTrash = nil
-        guard let target = entry.path else { return }
-        switch DiskAnalyzer.moveToTrash(target) {
+        switch DiskAnalyzer.moveToTrash(entry.path) {
         case .success:
             entries.removeAll { $0.id == entry.id }
         case .failure(let error):

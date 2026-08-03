@@ -2,29 +2,38 @@ import Foundation
 import OSLog
 import WidgetKit
 
+/// Owns `SystemMetrics` and serialises access to it.
+///
+/// `SystemMetrics` keeps the previous CPU tick sample between calls, so two
+/// concurrent collections would corrupt each other's deltas and produce
+/// nonsense percentages. A dedicated serial queue makes that impossible.
+private final class MetricsEngine: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "com.paulomateus.vitality.metrics", qos: .utility)
+    private let metrics = SystemMetrics()
+
+    func collect(_ completion: @escaping (SystemStatus) -> Void) {
+        queue.async { completion(self.metrics.collect()) }
+    }
+}
+
 @MainActor
 final class StatusPoller: ObservableObject {
     @Published private(set) var latest: SystemStatus?
-    @Published private(set) var lastError: MoleError?
+    @Published private(set) var lastError: String?
 
     private let log = Logger(subsystem: "com.paulomateus.vitality", category: "poller")
-
+    private let engine = MetricsEngine()
     private var timer: Timer?
     private var lastWidgetReload = Date.distantPast
 
-    /// True while a `mo status` run is in flight.
-    ///
-    /// `mo` is a shell script that forks dozens of helpers and takes a few
-    /// seconds. Without this guard the timer starts a new run before the last
-    /// one finishes, they contend, and every run trips its own timeout — so the
-    /// app burns CPU continuously and never produces a single usable result.
-    private var isCollecting = false
-
     /// WidgetKit budgets how often an extension may reload. Asking on every
-    /// poll would get Vitality throttled and make widgets update *less* often.
+    /// poll would get Vitality throttled and refresh the widgets *less* often.
     private let widgetReloadInterval: TimeInterval = 30
 
-    init(interval: TimeInterval = 3) {
+    /// Collection is now pure in-process sysctl/Mach/IOKit calls costing under a
+    /// millisecond, so this can be genuinely live. The old 3-second floor
+    /// existed only because shelling out to a bash script was expensive.
+    init(interval: TimeInterval = 1) {
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
@@ -34,45 +43,18 @@ final class StatusPoller: ObservableObject {
     deinit { timer?.invalidate() }
 
     func refresh() {
-        guard !isCollecting else {
-            log.debug("skipping poll — previous mo run still in flight")
-            return
-        }
-        isCollecting = true
-
-        Task.detached(priority: .utility) { [weak self] in
-            var result = StatusCollector.collect()
-
-            // Attach the GPU reading Mole can't provide. Cheap (one IOKit
-            // registry lookup), so it rides along with every poll.
-            if case .success(var status) = result {
-                status.measuredGPU = GPUMonitor.sample()
-                result = .success(status)
-            }
-
-            // Persist off the main actor — the widget reads this file, and a
-            // disk write has no business blocking the UI.
-            var writeError: Error?
-            if case .success(let status) = result {
-                writeError = SharedStatusStore.write(status)
-            }
-
-            await MainActor.run {
+        engine.collect { [weak self] status in
+            let writeError = SharedStatusStore.write(status)
+            Task { @MainActor in
                 guard let self else { return }
-                self.isCollecting = false
-
-                switch result {
-                case .success(let status):
-                    if let writeError {
-                        self.log.error("shared store write failed: \(writeError.localizedDescription, privacy: .public)")
-                    }
-                    self.latest = status
+                if let writeError {
+                    self.log.error("shared store write failed: \(writeError.localizedDescription, privacy: .public)")
+                    self.lastError = writeError.localizedDescription
+                } else {
                     self.lastError = nil
-                    self.reloadWidgetsIfDue()
-                case .failure(let error):
-                    self.log.error("mo status failed: \(error.localizedDescription, privacy: .public)")
-                    self.lastError = error
                 }
+                self.latest = status
+                self.reloadWidgetsIfDue()
             }
         }
     }

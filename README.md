@@ -2,39 +2,32 @@
 
 A native macOS menu bar app, dashboard, and Notification Centre widget that shows your Mac's vital signs at a glance — and lets you act on them.
 
-Vitality is a small, native front end for [Mole](https://github.com/tw93/Mole) — a terminal tool that does the system inspection. Mole does the measuring; Vitality makes it glanceable and clickable.
+**No dependencies.** Vitality measures everything itself through public macOS APIs. Nothing to install first, nothing to configure.
 
 ## What it does
 
-**Menu bar** — health score, CPU, memory, disk, power draw, battery, and top process. Every row with more to say is clickable:
+**Menu bar** — health score, CPU, GPU, memory, disk, power, battery, and top process. Every row with more to say is clickable:
 
 | Row | Opens |
 |---|---|
 | CPU | Per-core usage bars, chip, P/E core split, 1/5/15-minute load averages scaled to core count |
 | GPU | Live utilisation with renderer/tiler breakdown and memory in use |
 | Memory | In use / available / cached / total, plus swap — with a warning when your Mac is swapping heavily |
-| Disk | Every volume with free space and SMART state |
-| Power / Battery | System draw, adapter, fan, plus battery health, max capacity and cycle count |
-| Top process | The five heaviest processes with PID and memory |
+| Disk | Every volume with free space |
+| Power / Battery | Adapter wattage, battery flow, plus battery health, max capacity and cycle count |
+| Top process | The heaviest processes with PID and memory |
 
 **Dashboard** (`Open Dashboard…`) — three tabs:
 
-- **Overview** — health ring, machine summary, uptime, and the four key metrics
+- **Overview** — health ring, machine summary, uptime, and the key metrics
 - **Processes** — the full process table, filterable and sortable by CPU, memory or name. Quit or Force Quit anything you own.
-- **Storage** — every volume, plus a size-sorted file browser you can drill into. Reveal in Finder, or move items to the Trash.
+- **Storage** — every volume, plus a size-sorted folder browser you can drill into. Reveal in Finder, or move items to the Trash.
 
 **Widgets** — small, medium and large, in Notification Centre and on the desktop.
 
 ## Requirements
 
-- macOS 14 (Sonoma) or later
-- [Mole](https://github.com/tw93/Mole), which provides the `mo` command:
-
-```bash
-brew install mole
-```
-
-Vitality does **not** bundle Mole. You install it yourself, and Vitality runs it.
+macOS 14 (Sonoma) or later. That's it.
 
 ## Install
 
@@ -50,9 +43,17 @@ Open `build/Vitality-<version>.dmg` and drag Vitality to Applications. That's th
 
 There is deliberately **no GitHub Release**, because a downloaded build would not run on your Mac — and shipping a download that fails is worse than shipping none.
 
-macOS only applies Gatekeeper to *quarantined* files. A DMG you build locally is never quarantined, so it installs and runs fine. Anything **downloaded** gets `com.apple.quarantine` stamped on it by the browser, Gatekeeper evaluates the signature, and a build signed with an *Apple Development* certificate is rejected — usually with "Vitality is damaged and can't be opened". The right-click → Open trick rescues an *unidentified developer*, but it does not bypass that message.
+macOS only applies Gatekeeper to *quarantined* files. A DMG you build locally is never quarantined, so it installs and runs fine. Anything **downloaded** gets `com.apple.quarantine` stamped on it by the browser, Gatekeeper evaluates the signature, and a build signed with an *Apple Development* certificate is rejected. Apple's own tooling is blunt about it:
 
-Making the download work needs three things, all gated behind Apple's paid Developer Program (~$99/yr):
+```
+$ syspolicy_check distribution Vitality.app
+App has failed one or more pre-distribution checks.
+Notary Ticket Missing — Severity: Fatal
+```
+
+The right-click → Open trick rescues an *unidentified developer*; it does not bypass that.
+
+Fixing it needs three things, all gated behind Apple's paid Developer Program (~$99/yr):
 
 1. A **Developer ID Application** certificate
 2. **Notarisation** — Apple scans and signs off on the build
@@ -116,21 +117,40 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project Vit
 ## How it works
 
 ```
-mo status --json  ──▶  Vitality (menu bar app)  ──▶  App Group container
-                                                        │  status.json
-                                                        ▼
-                                              VitalityWidget (WidgetKit)
+SystemMetrics (sysctl · Mach · IOKit)  ──▶  Vitality (menu bar app)
+                                              │
+                                              ▼  status.json
+                                        App Group container
+                                              │
+                                              ▼
+                                    VitalityWidget (WidgetKit)
 ```
 
-The app runs `mo status --json` every three seconds on a background task, decodes it, and writes it atomically to a shared App Group container. The widget extension reads that file on its WidgetKit timeline, and the app nudges WidgetKit at most once every 30 seconds — WidgetKit budgets reloads, so asking more often would get Vitality throttled and refresh the widgets *less*.
+Everything comes from public macOS APIs:
 
-Four design decisions worth being explicit about:
+| Metric | Source |
+|---|---|
+| CPU, per-core | `host_processor_info` tick deltas |
+| Load average | `getloadavg` |
+| P/E core split | `hw.perflevel0/1.logicalcpu` |
+| Memory, swap | `host_statistics64`, `vm.swapusage` |
+| Disk | `URLResourceValues` volume capacities |
+| GPU | IOKit `IOAccelerator` → `PerformanceStatistics` |
+| Battery, cycles, health | IOKit `IOPowerSources` + `AppleSmartBattery` |
+| Processes | `ps` + `kill(2)` |
+| Model, chip, uptime | IOKit device tree, `sysctl` |
 
-- **The app is not sandboxed.** App Sandbox forbids executing an external binary that isn't embedded in the app's own bundle, which would make calling Homebrew's `mo` impossible. The widget extension *is* sandboxed — Apple requires that of all extensions — and only ever reads.
+The app samples once a second and writes atomically to a shared App Group container. The widget extension reads that file on its WidgetKit timeline, and the app nudges WidgetKit at most once every 30 seconds — WidgetKit budgets reloads, so asking more often would refresh the widgets *less*.
+
+Some design decisions worth being explicit about:
+
+- **CPU usage is a delta, not a reading.** The kernel reports ticks accumulated since boot, so a single sample means nothing. `SystemMetrics` keeps the previous sample, which is why collection is serialised onto one queue — two concurrent collections would corrupt each other's deltas.
+- **The health score is our own, and it explains itself.** Any single "health" number is a judgement call, so the weights are explicit in `HealthScore.swift` and the score always ships with a message naming the biggest deduction. A full boot volume weighs heaviest, then sustained swapping, then CPU saturation, then battery wear.
+- **Memory "used" excludes inactive pages.** macOS keeps RAM deliberately full, so penalising a high memory figure would flag every healthy Mac. Swapping is the honest signal, and that's what the score reacts to.
+- **Power is reported as two real figures, not one invented one.** Total SoC package draw — the single wattage `powermetrics` prints — needs IOReport or SMC access, neither of which is public API. Vitality reports adapter wattage and actual battery flow instead of guessing.
+- **The app is not sandboxed.** It runs `ps` and reads IOKit registries. The widget extension *is* sandboxed — Apple requires that of all extensions — and only ever reads the status file.
 - **The App Group ID is prefixed with the team ID.** macOS requires `TEAMID.group.example.app`; the bare `group.*` form is the iOS convention. Get this wrong and `containermanagerd` rejects the write with a generic "you don't have permission" error that looks nothing like a naming problem. The prefix is injected at build time from `DEVELOPMENT_TEAM`, so no team ID is hardcoded in source.
-- **GPU usage is measured by Vitality, not Mole.** `mo status --json` reports `gpu[].usage = -1` on Apple silicon — it has no reading to give. The real figures live in IOKit's `IOAccelerator → PerformanceStatistics`, so `GPUMonitor` reads them directly and attaches them to the snapshot as `measured_gpu`, kept separate from Mole's own `gpu` field so the provenance stays obvious.
-- **Process listing and quitting use `ps` and `kill` directly, not Mole.** Mole has no process-management commands, and its `status --json` returns only the top five — too thin to manage anything. Only processes you own can be signalled; that's macOS, not Vitality.
-- **Mole's destructive commands are not automated.** `mo clean`, `purge` and `uninstall` are interactive terminal UIs with no JSON or non-interactive mode. Driving them headlessly would mean screen-scraping a UI that deletes files, so Vitality hands off to Terminal instead. Vitality's own delete path moves items to the **Trash**, never `rm`.
+- **Deleting always moves to the Trash.** Vitality points you at your biggest files, which is exactly where a misread row costs something irreplaceable.
 
 ## The icon
 
@@ -154,19 +174,10 @@ cp design/alternates/light-clinical.svg design/icon.svg && python3 scripts/make-
 | `light-clinical.svg` | Pale, clinical tone; the only light option, so it stands out in a dark Dock |
 | `heart-pulse.svg` | Solid heart with the pulse carved out as negative space |
 
-## Relationship to Mole, and licensing
+## License
 
-Vitality is an independent project. It is **not** affiliated with, sponsored by, or endorsed by Mole or its author.
-
-Vitality contains no Mole source code. Mole is written in Go; Vitality is written in Swift. The only point of contact is running the `mo` command-line tool and parsing its public JSON output — two separate programs communicating at arm's length. That is why Vitality can be MIT licensed while Mole is GPL-3.0: Vitality is not a derivative work of Mole, and it does not redistribute any part of it.
-
-Vitality never ships the `mo` binary. You install Mole yourself via Homebrew, under Mole's own license.
-
-| | License |
-|---|---|
-| **Vitality** (this project) | MIT — see [LICENSE](LICENSE) |
-| **Mole** (separate dependency) | GPL-3.0-or-later, © [tw93](https://github.com/tw93) |
+MIT — see [LICENSE](LICENSE).
 
 ## Credits
 
-Vitality is only useful because [Mole](https://github.com/tw93/Mole) exists. All the hard work of actually measuring the system is Mole's — thank you [@tw93](https://github.com/tw93).
+Vitality began as a front end for [Mole](https://github.com/tw93/Mole), tw93's excellent open-source Mac maintenance tool, and shipped that way for its first few versions. It now measures everything natively so it has no dependencies, but the project owes its shape — and its health-score idea — to Mole. Thank you [@tw93](https://github.com/tw93).

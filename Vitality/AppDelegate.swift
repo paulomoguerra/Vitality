@@ -10,7 +10,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var poller: StatusPoller!
     private var dashboard: DashboardWindowController!
     private var eventMonitor: Any?
-    private var onboardingWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         LoginItem.register()
@@ -42,33 +41,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Vitality is inert without Mole, and it has no Dock icon — so a first
         // run with Mole missing would otherwise be a menu bar item quietly
         // reporting an error the user has no way to act on.
-        if MoleCLI.isInstalled {
-            log.info("launch: mole present, skipping onboarding")
-        } else {
-            log.info("launch: mole missing, showing onboarding")
-            showOnboarding()
-        }
-    }
-
-    func showOnboarding() {
-        if let onboardingWindow {
-            onboardingWindow.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
-        let hosting = NSHostingController(rootView: OnboardingView(onReady: { [weak self] in
-            self?.onboardingWindow?.close()
-        }))
-        let window = NSWindow(contentViewController: hosting)
-        window.title = "Vitality Setup"
-        window.styleMask = [.titled, .closable]
-        window.center()
-        window.isReleasedWhenClosed = false
-
-        onboardingWindow = window
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        // No setup step any more: Vitality measures everything itself, so it
+        // works the moment it launches with nothing to install first.
+        log.info("launch: native metrics, no external dependency")
     }
 
     func applicationWillTerminate(_ notification: Notification) {

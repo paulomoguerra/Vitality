@@ -16,7 +16,7 @@ struct CPUDetailPane: View {
             MiniBar(percent: cpu?.usage)
                 .padding(.horizontal, 14).padding(.vertical, 5)
 
-            if let chip = status?.hardware?.cpuModel {
+            if let chip = status?.hardware?.chip {
                 DetailLine(label: "Chip", value: chip)
             }
             DetailLine(label: "Cores",
@@ -93,8 +93,7 @@ struct GPUDetailPane: View {
     let back: () -> Void
 
     var body: some View {
-        let gpu = status?.measuredGPU
-        let moleGPU = status?.gpu?.first
+        let gpu = status?.gpu
 
         VStack(alignment: .leading, spacing: 0) {
             PaneHeader(title: "GPU", back: back)
@@ -103,11 +102,8 @@ struct GPUDetailPane: View {
             MiniBar(percent: gpu?.utilization)
                 .padding(.horizontal, 14).padding(.vertical, 5)
 
-            if let name = gpu?.name ?? moleGPU?.name {
+            if let name = gpu?.name ?? status?.hardware?.chip {
                 DetailLine(label: "Chip", value: name)
-            }
-            if let cores = moleGPU?.coreCount, cores > 0 {
-                DetailLine(label: "Cores", value: "\(cores)")
             }
 
             Divider().padding(.vertical, 8)
@@ -135,10 +131,9 @@ struct GPUDetailPane: View {
                     .padding(.horizontal, 14).padding(.top, 4)
             }
 
-            Text("Measured by Vitality via IOKit — Mole doesn't report GPU usage on Apple silicon.")
+            Text("Read from IOKit's IOAccelerator registry.")
                 .font(.system(size: 9))
                 .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 14).padding(.top, 8)
         }
         .padding(.bottom, 6)
@@ -205,10 +200,10 @@ struct StorageDetailPane: View {
             ForEach(status?.userDisks ?? []) { disk in
                 VStack(alignment: .leading, spacing: 3) {
                     HStack {
-                        Text(disk.mount ?? disk.device ?? "—")
+                        Text(disk.displayName)
                             .font(.system(size: 11, weight: .medium))
                             .lineLimit(1).truncationMode(.middle)
-                        if disk.external == true {
+                        if disk.isInternal == false {
                             Text("external")
                                 .font(.system(size: 9))
                                 .foregroundStyle(.tertiary)
@@ -231,10 +226,6 @@ struct StorageDetailPane: View {
                 .padding(.vertical, 6)
             }
 
-            if let trash = status?.trashSize, trash > 0 {
-                DetailLine(label: "Trash", value: Fmt.bytes(trash))
-            }
-
             Divider().padding(.vertical, 8)
             MenuActionRow(icon: "folder.badge.gearshape",
                           label: "Manage storage…", action: openDashboard)
@@ -250,22 +241,20 @@ struct PowerDetailPane: View {
     let back: () -> Void
 
     var body: some View {
-        let thermal = status?.thermal
+        let power = status?.power
         let battery = status?.battery
 
         VStack(alignment: .leading, spacing: 0) {
             PaneHeader(title: "Power", back: back)
 
-            DetailLine(label: "System draw", value: Fmt.watts(thermal?.systemPower))
-            if let adapter = thermal?.adapterPower, adapter > 0 {
+            if let adapter = power?.adapterWatts, adapter > 0 {
                 DetailLine(label: "Adapter", value: Fmt.watts(adapter))
             }
-            if let fan = thermal?.fanSpeed, fan > 0 {
-                DetailLine(label: "Fan", value: "\(fan) rpm")
+            if let draw = power?.batteryWatts, draw > 0 {
+                DetailLine(label: power?.isCharging == true ? "Charging at" : "Battery draw",
+                           value: Fmt.watts(draw))
             }
-            if let temp = thermal?.cpuTemp, temp > 0 {
-                DetailLine(label: "CPU temp", value: String(format: "%.0f°C", temp))
-            }
+            DetailLine(label: "Source", value: power?.isOnAC == true ? "Wall power" : "Battery")
 
             if let battery {
                 Divider().padding(.vertical, 8)

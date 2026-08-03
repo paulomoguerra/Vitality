@@ -55,7 +55,7 @@ struct OverviewView: View {
                     metrics(status)
                     if !status.processes.isEmpty { topProcesses(status) }
                 } else if let error = poller.lastError {
-                    Label(error.localizedDescription, systemImage: "exclamationmark.triangle.fill")
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                         .padding()
                 } else {
@@ -81,8 +81,8 @@ struct OverviewView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(status.hardware?.model ?? status.host ?? "This Mac")
                     .font(.system(size: 15, weight: .semibold))
-                Text([status.hardware?.cpuModel,
-                      status.hardware?.totalRam,
+                Text([status.hardware?.chip,
+                      status.hardware?.totalRAM.map { Fmt.bytes($0) },
                       status.hardware?.osVersion]
                         .compactMap { $0 }.joined(separator: " · "))
                     .font(.system(size: 11)).foregroundStyle(.secondary)
@@ -106,9 +106,9 @@ struct OverviewView: View {
             ], spacing: 12) {
                 card("CPU", Fmt.percent(status.cpu?.usage, decimals: 1), status.cpu?.usage,
                      detail: "Load \(Fmt.load(status.cpu?.load1)) · \(status.cpu?.coreCount.map(String.init) ?? "—") cores")
-                card("GPU", Fmt.percent(status.measuredGPU?.utilization, decimals: 1),
-                     status.measuredGPU?.utilization,
-                     detail: status.measuredGPU?.inUseMemory.map { "\(Fmt.bytes($0)) in use" } ?? "—")
+                card("GPU", Fmt.percent(status.gpu?.utilization, decimals: 1),
+                     status.gpu?.utilization,
+                     detail: status.gpu?.inUseMemory.map { "\(Fmt.bytes($0)) in use" } ?? "—")
                 card("Memory", Fmt.percent(status.memory?.usedPercent, decimals: 1), status.memory?.usedPercent,
                      detail: "\(Fmt.bytes(status.memory?.used)) of \(Fmt.bytes(status.memory?.total))")
                 card("Disk", Fmt.percent(status.primaryDisk?.usedPercent), status.primaryDisk?.usedPercent,
@@ -134,9 +134,10 @@ struct OverviewView: View {
 
     private func powerStrip(_ status: SystemStatus) -> some View {
         HStack(alignment: .top, spacing: 28) {
-            inlineStat("Power draw", Fmt.watts(status.thermal?.systemPower))
-            if let adapter = status.thermal?.adapterPower, adapter > 0 {
-                inlineStat("Adapter", Fmt.watts(adapter))
+            inlineStat(status.headlinePowerLabel, Fmt.watts(status.headlinePower))
+            if let draw = status.power?.batteryWatts, draw > 0, status.power?.isOnAC == true {
+                inlineStat(status.power?.isCharging == true ? "Charging at" : "Battery flow",
+                           Fmt.watts(draw))
             }
             if let battery = status.battery {
                 inlineStat("Battery",

@@ -1,10 +1,6 @@
 import Foundation
 
-/// GPU figures Vitality measures itself through IOKit.
-///
-/// Kept separate from `SystemStatus.GPU` (which mirrors Mole's payload) because
-/// the two have different provenance: Mole's `gpu[].usage` is `-1` on Apple
-/// silicon, while these come from the IOAccelerator registry and are real.
+/// GPU figures read from IOKit's `IOAccelerator` registry.
 struct GPUStats: Codable, Equatable {
     let name: String?
     /// Overall device utilisation, 0–100.
@@ -23,29 +19,18 @@ struct GPUStats: Codable, Equatable {
     }
 }
 
-/// Decoded from `mo status --json`.
+/// A snapshot of the machine, measured entirely through public macOS APIs.
 ///
-/// Every field is optional on purpose. Mole is a separate project on its own
-/// release cadence, and a single renamed or dropped key would otherwise make
-/// `JSONDecoder` throw for the *whole* payload — which surfaces to the user as
-/// a blank menu bar and blank widgets with no explanation. Tolerating partial
-/// data means a Mole update can degrade one row instead of the entire app.
+/// Fields stay optional even though Vitality produces them itself: the app and
+/// the widget extension are separate binaries that can be running different
+/// builds after an update, and one unknown key must never blank the whole UI.
 struct SystemStatus: Codable {
 
     struct Hardware: Codable {
-        let model: String?
-        let cpuModel: String?
-        let totalRam: String?
-        let diskSize: String?
+        let model: String?      // "MacBook Air"
+        let chip: String?       // "Apple M4"
+        let totalRAM: Int64?
         let osVersion: String?
-
-        enum CodingKeys: String, CodingKey {
-            case model
-            case cpuModel = "cpu_model"
-            case totalRam = "total_ram"
-            case diskSize = "disk_size"
-            case osVersion = "os_version"
-        }
     }
 
     struct CPU: Codable {
@@ -55,29 +40,8 @@ struct SystemStatus: Codable {
         let load5: Double?
         let load15: Double?
         let coreCount: Int?
-        let logicalCPU: Int?
         let pCoreCount: Int?
         let eCoreCount: Int?
-
-        enum CodingKeys: String, CodingKey {
-            case usage, load1, load5, load15
-            case perCore = "per_core"
-            case coreCount = "core_count"
-            case logicalCPU = "logical_cpu"
-            case pCoreCount = "p_core_count"
-            case eCoreCount = "e_core_count"
-        }
-    }
-
-    struct GPU: Codable {
-        let name: String?
-        let usage: Double?
-        let coreCount: Int?
-
-        enum CodingKeys: String, CodingKey {
-            case name, usage
-            case coreCount = "core_count"
-        }
     }
 
     struct Memory: Codable {
@@ -89,51 +53,39 @@ struct SystemStatus: Codable {
         let swapTotal: Int64?
         let cached: Int64?
         let pressure: String?
-
-        enum CodingKeys: String, CodingKey {
-            case used, total, available, cached, pressure
-            case usedPercent = "used_percent"
-            case swapUsed = "swap_used"
-            case swapTotal = "swap_total"
-        }
     }
 
     struct Disk: Codable, Identifiable {
         let mount: String?
-        let device: String?
+        let name: String?
         let used: Int64?
         let total: Int64?
         let usedPercent: Double?
-        let fstype: String?
-        let external: Bool?
-        let smartStatus: String?
+        let isInternal: Bool?
+        let isRemovable: Bool?
 
-        var id: String { (mount ?? "") + "|" + (device ?? "") }
+        var id: String { mount ?? name ?? UUID().uuidString }
         var free: Int64 { max(0, (total ?? 0) - (used ?? 0)) }
 
-        enum CodingKeys: String, CodingKey {
-            case mount, device, used, total, fstype, external
-            case usedPercent = "used_percent"
-            case smartStatus = "smart_status"
+        /// "Macintosh HD" beats a bare "/", and a volume name beats a long path.
+        var displayName: String {
+            if let name, !name.isEmpty { return name }
+            guard let mount else { return "—" }
+            return mount == "/" ? "Startup disk" : (mount as NSString).lastPathComponent
         }
     }
 
-    struct Thermal: Codable {
-        let cpuTemp: Double?
-        let fanSpeed: Int?
-        let fanCount: Int?
-        let systemPower: Double?
-        let adapterPower: Double?
-        let batteryPower: Double?
-
-        enum CodingKeys: String, CodingKey {
-            case cpuTemp = "cpu_temp"
-            case fanSpeed = "fan_speed"
-            case fanCount = "fan_count"
-            case systemPower = "system_power"
-            case adapterPower = "adapter_power"
-            case batteryPower = "battery_power"
-        }
+    /// Power figures Vitality can measure honestly.
+    ///
+    /// Total SoC package draw — the single wattage `powermetrics` reports —
+    /// requires IOReport or SMC access, neither of which is public API. Rather
+    /// than invent one number, Vitality reports adapter wattage and actual
+    /// battery flow, which are both real and both measurable.
+    struct Power: Codable {
+        let adapterWatts: Double?
+        let batteryWatts: Double?
+        let isCharging: Bool?
+        let isOnAC: Bool?
     }
 
     struct Battery: Codable {
@@ -142,87 +94,53 @@ struct SystemStatus: Codable {
         let timeLeft: String?
         let health: String?
         let cycleCount: Int?
+        /// Maximum capacity relative to new, as a percentage.
         let capacity: Int?
-
-        enum CodingKeys: String, CodingKey {
-            case percent, status, health, capacity
-            case timeLeft = "time_left"
-            case cycleCount = "cycle_count"
-        }
     }
 
     struct TopProcess: Codable, Identifiable {
         let pid: Int32?
-        let ppid: Int32?
         let name: String?
-        let command: String?
         let cpu: Double?
-        let memory: Double?
         let memoryBytes: Int64?
 
         var id: Int32 { pid ?? -1 }
-
-        enum CodingKeys: String, CodingKey {
-            case pid, ppid, name, command, cpu, memory
-            case memoryBytes = "memory_bytes"
-        }
     }
 
-    /// GPU figures Vitality measures itself via IOKit.
-    ///
-    /// Not part of Mole's payload — Mole reports `usage: -1` on Apple silicon,
-    /// so this is absent when decoding `mo status --json` and is filled in by
-    /// the app before the snapshot is written to the shared container. `var`
-    /// rather than `let` precisely so the poller can attach it.
-    var measuredGPU: GPUStats?
-
     let host: String?
-    let platform: String?
     let uptime: String?
     let procs: Int?
     let hardware: Hardware?
     let healthScore: Int?
     let healthScoreMsg: String?
     let cpu: CPU?
-    let gpu: [GPU]?
+    let gpu: GPUStats?
     let memory: Memory?
     let disks: [Disk]?
-    let trashSize: Int64?
-    let thermal: Thermal?
+    let power: Power?
     let batteries: [Battery]?
     let topProcesses: [TopProcess]?
-    let collectedAt: String?
+    let collectedAt: Date?
 
-    enum CodingKeys: String, CodingKey {
-        case host, platform, uptime, procs, hardware, cpu, gpu, memory, disks, thermal, batteries
-        case measuredGPU = "measured_gpu"
-        case healthScore = "health_score"
-        case healthScoreMsg = "health_score_msg"
-        case trashSize = "trash_size"
-        case topProcesses = "top_processes"
-        case collectedAt = "collected_at"
-    }
+    // MARK: - Convenience
 
-    /// The boot volume, falling back to whatever disk Mole listed first.
     var primaryDisk: Disk? {
         disks?.first(where: { $0.mount == "/" }) ?? disks?.first
     }
 
-    /// Disks worth showing the user.
-    ///
-    /// Zero-sized entries are placeholders Mole emits for volumes it couldn't
-    /// stat. Xcode's simulator runtimes also mount as separate volumes and are
-    /// pure noise on a dev machine — they're managed by Xcode, always near
-    /// full, and nothing the user can act on.
-    var userDisks: [Disk] {
-        (disks ?? []).filter { disk in
-            guard (disk.total ?? 0) > 0 else { return false }
-            if let mount = disk.mount, mount.contains("/CoreSimulator/Volumes/") { return false }
-            return true
-        }
-    }
-
+    var userDisks: [Disk] { disks ?? [] }
     var battery: Battery? { batteries?.first }
     var topProcess: TopProcess? { topProcesses?.first }
     var processes: [TopProcess] { topProcesses ?? [] }
+
+    /// The headline power figure: what the adapter is supplying when plugged in,
+    /// or what the battery is actually giving up when it isn't.
+    var headlinePower: Double? {
+        if power?.isOnAC == true { return power?.adapterWatts ?? power?.batteryWatts }
+        return power?.batteryWatts
+    }
+
+    var headlinePowerLabel: String {
+        power?.isOnAC == true ? "Adapter" : "Battery draw"
+    }
 }
