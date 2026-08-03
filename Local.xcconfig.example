@@ -1,0 +1,10 @@
+// Copy this file to `Local.xcconfig`, then set your own Apple Developer Team ID.
+//
+//   cp Local.xcconfig.example Local.xcconfig
+//
+// Find your Team ID at https://developer.apple.com/account → Membership details.
+// A free Apple ID works for building and running locally.
+//
+// Local.xcconfig is gitignored so no one's signing identity ends up in the repo.
+
+DEVELOPMENT_TEAM = XXXXXXXXXX
