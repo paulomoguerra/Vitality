@@ -6,7 +6,19 @@ A native macOS menu bar app, dashboard, and Notification Centre widget that show
 
 ## What it does
 
-**Menu bar** — health score, CPU, GPU, memory, disk, power, battery, and top process. Every row with more to say is clickable:
+**Live figures in the menu bar** — pick which readings sit next to the Vitality icon and watch them update every second: CPU, GPU, memory, disk, power, battery, health. `Menu bar…` in the popover chooses them, with a live preview of the result.
+
+| Option | What it does |
+|---|---|
+| Show | Which of the seven metrics appear, in a fixed order so the strip never reshuffles |
+| Colour | `When it matters` (default — plain until a reading goes orange or red), `Always`, or `Never` |
+| Labels | The `CPU` / `GPU` / `RAM` tags before each number |
+| Graph | A 40-second sparkline on CPU, GPU, memory and power |
+| Vitality icon | The gauge itself — and it stays put if you turn everything else off, so the app can't hide from you |
+
+Each reading reserves room for its widest possible value, so a Mac going from 9% to 100% never shoves the rest of your menu bar sideways.
+
+**Menu bar popover** — health score, CPU, GPU, memory, disk, power, battery, and top process. Every row with more to say is clickable:
 
 | Row | Opens |
 |---|---|

@@ -5,7 +5,9 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let log = Logger(subsystem: "com.paulomateus.vitality", category: "app")
-    private var statusItem: NSStatusItem!
+    private var menuBar: MenuBarStatusItemController!
+    private var settings: MenuBarSettings!
+    private var history: MenuBarHistory!
     private var popover: NSPopover!
     private var poller: StatusPoller!
     private var dashboard: DashboardWindowController!
@@ -17,10 +19,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         poller = StatusPoller()
         dashboard = DashboardWindowController(poller: poller)
 
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "gauge.medium",
-                                   accessibilityDescription: "Vitality")
+        settings = MenuBarSettings()
+        history = MenuBarHistory(poller: poller)
+        menuBar = MenuBarStatusItemController(poller: poller, settings: settings, history: history)
+        if let button = menuBar.button {
             button.action = #selector(togglePopover(_:))
             button.target = self
         }
@@ -28,7 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover = NSPopover()
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(
-            rootView: MenuBarView(poller: poller, onOpenDashboard: { [weak self] in
+            rootView: MenuBarView(poller: poller,
+                                  settings: settings,
+                                  history: history,
+                                  onOpenDashboard: { [weak self] in
                 self?.openDashboard()
             })
         )
@@ -55,7 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func togglePopover(_ sender: AnyObject?) {
-        guard let button = statusItem.button else { return }
+        guard let button = menuBar.button else { return }
         if popover.isShown {
             popover.performClose(sender)
         } else {

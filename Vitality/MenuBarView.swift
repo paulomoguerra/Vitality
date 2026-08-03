@@ -4,11 +4,13 @@ import SwiftUI
 /// because popovers size themselves to their content, and NavigationStack's
 /// animated push makes the window jump around while resizing.
 enum MenuPane: Hashable {
-    case root, cpu, gpu, memory, storage, power, processes
+    case root, cpu, gpu, memory, storage, power, processes, menuBar
 }
 
 struct MenuBarView: View {
     @ObservedObject var poller: StatusPoller
+    @ObservedObject var settings: MenuBarSettings
+    @ObservedObject var history: MenuBarHistory
     @State private var pane: MenuPane = .root
 
     var onOpenDashboard: () -> Void
@@ -25,6 +27,8 @@ struct MenuBarView: View {
             case .power:      PowerDetailPane(status: poller.latest, back: goBack)
             case .processes:  ProcessesDetailPane(status: poller.latest, back: goBack,
                                                   openDashboard: openDashboard)
+            case .menuBar:    MenuBarSettingsPane(settings: settings, history: history,
+                                                  status: poller.latest, back: goBack)
             }
         }
         .frame(width: 288)
@@ -107,6 +111,7 @@ struct MenuBarView: View {
     private func footer(status: SystemStatus?) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             MenuActionRow(icon: "square.grid.2x2", label: "Open Dashboard…", action: openDashboard)
+            MenuActionRow(icon: "menubar.rectangle", label: "Menu bar…") { pane = .menuBar }
             MenuActionRow(icon: "power", label: "Quit Vitality") { NSApp.terminate(nil) }
 
             if let status {
