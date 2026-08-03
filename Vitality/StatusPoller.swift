@@ -41,7 +41,14 @@ final class StatusPoller: ObservableObject {
         isCollecting = true
 
         Task.detached(priority: .utility) { [weak self] in
-            let result = StatusCollector.collect()
+            var result = StatusCollector.collect()
+
+            // Attach the GPU reading Mole can't provide. Cheap (one IOKit
+            // registry lookup), so it rides along with every poll.
+            if case .success(var status) = result {
+                status.measuredGPU = GPUMonitor.sample()
+                result = .success(status)
+            }
 
             // Persist off the main actor — the widget reads this file, and a
             // disk write has no business blocking the UI.

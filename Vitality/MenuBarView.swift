@@ -4,7 +4,7 @@ import SwiftUI
 /// because popovers size themselves to their content, and NavigationStack's
 /// animated push makes the window jump around while resizing.
 enum MenuPane: Hashable {
-    case root, cpu, memory, storage, power, processes
+    case root, cpu, gpu, memory, storage, power, processes
 }
 
 struct MenuBarView: View {
@@ -18,6 +18,7 @@ struct MenuBarView: View {
             switch pane {
             case .root:       rootPane
             case .cpu:        CPUDetailPane(status: poller.latest, back: goBack)
+            case .gpu:        GPUDetailPane(status: poller.latest, back: goBack)
             case .memory:     MemoryDetailPane(status: poller.latest, back: goBack)
             case .storage:    StorageDetailPane(status: poller.latest, back: goBack,
                                                 openDashboard: openDashboard)
@@ -49,6 +50,12 @@ struct MenuBarView: View {
             MenuRow(icon: "cpu", label: "CPU",
                     value: Fmt.percent(status.cpu?.usage, decimals: 1),
                     action: { pane = .cpu })
+
+            if let gpu = status.measuredGPU, gpu.utilization != nil {
+                MenuRow(icon: "cpu.fill", label: "GPU",
+                        value: Fmt.percent(gpu.utilization, decimals: 1),
+                        action: { pane = .gpu })
+            }
 
             MenuRow(icon: "memorychip", label: "Memory",
                     value: Fmt.percent(status.memory?.usedPercent, decimals: 1),

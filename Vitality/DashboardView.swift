@@ -97,6 +97,11 @@ struct OverviewView: View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
             card("CPU", Fmt.percent(status.cpu?.usage, decimals: 1), status.cpu?.usage,
                  detail: "Load \(Fmt.load(status.cpu?.load1)) · \(status.cpu?.coreCount.map(String.init) ?? "—") cores")
+            if let gpu = status.measuredGPU, gpu.utilization != nil {
+                card("GPU", Fmt.percent(gpu.utilization, decimals: 1), gpu.utilization,
+                     detail: gpu.inUseMemory.map { "\(Fmt.bytes($0)) in use" }
+                         ?? (gpu.name ?? "—"))
+            }
             card("Memory", Fmt.percent(status.memory?.usedPercent, decimals: 1), status.memory?.usedPercent,
                  detail: "\(Fmt.bytes(status.memory?.used)) of \(Fmt.bytes(status.memory?.total))")
             card("Disk", Fmt.percent(status.primaryDisk?.usedPercent), status.primaryDisk?.usedPercent,

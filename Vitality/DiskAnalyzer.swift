@@ -11,6 +11,12 @@ struct DiskEntry: Codable, Identifiable, Hashable {
     var id: String { path ?? name ?? UUID().uuidString }
     var displayName: String { name ?? (path as NSString?)?.lastPathComponent ?? "—" }
 
+    // Table sorting needs Comparable key paths, and Swift's Optional is not
+    // Comparable — so expose non-optional accessors for the sortable columns.
+    var sortSize: Int64 { size ?? 0 }
+    var sortName: String { displayName }
+    var sortKind: Int { (isDir == true) ? 0 : 1 }
+
     enum CodingKeys: String, CodingKey {
         case name, path, size
         case isDir = "is_dir"

@@ -11,6 +11,7 @@ Vitality is a small, native front end for [Mole](https://github.com/tw93/Mole) �
 | Row | Opens |
 |---|---|
 | CPU | Per-core usage bars, chip, P/E core split, 1/5/15-minute load averages scaled to core count |
+| GPU | Live utilisation with renderer/tiler breakdown and memory in use |
 | Memory | In use / available / cached / total, plus swap — with a warning when your Mac is swapping heavily |
 | Disk | Every volume with free space and SMART state |
 | Power / Battery | System draw, adapter, fan, plus battery health, max capacity and cycle count |
@@ -105,8 +106,19 @@ Four design decisions worth being explicit about:
 
 - **The app is not sandboxed.** App Sandbox forbids executing an external binary that isn't embedded in the app's own bundle, which would make calling Homebrew's `mo` impossible. The widget extension *is* sandboxed — Apple requires that of all extensions — and only ever reads.
 - **The App Group ID is prefixed with the team ID.** macOS requires `TEAMID.group.example.app`; the bare `group.*` form is the iOS convention. Get this wrong and `containermanagerd` rejects the write with a generic "you don't have permission" error that looks nothing like a naming problem. The prefix is injected at build time from `DEVELOPMENT_TEAM`, so no team ID is hardcoded in source.
+- **GPU usage is measured by Vitality, not Mole.** `mo status --json` reports `gpu[].usage = -1` on Apple silicon — it has no reading to give. The real figures live in IOKit's `IOAccelerator → PerformanceStatistics`, so `GPUMonitor` reads them directly and attaches them to the snapshot as `measured_gpu`, kept separate from Mole's own `gpu` field so the provenance stays obvious.
 - **Process listing and quitting use `ps` and `kill` directly, not Mole.** Mole has no process-management commands, and its `status --json` returns only the top five — too thin to manage anything. Only processes you own can be signalled; that's macOS, not Vitality.
 - **Mole's destructive commands are not automated.** `mo clean`, `purge` and `uninstall` are interactive terminal UIs with no JSON or non-interactive mode. Driving them headlessly would mean screen-scraping a UI that deletes files, so Vitality hands off to Terminal instead. Vitality's own delete path moves items to the **Trash**, never `rm`.
+
+## The icon
+
+The icon is the app's own health ring with a pulse through it — the same element the menu bar and dashboard use for the health score. It's authored as plain SVG at [`design/icon.svg`](design/icon.svg); edit that and regenerate the asset catalogue with:
+
+```bash
+python3 scripts/make-icon.py
+```
+
+That renders one 1024px master and downscales it to every size macOS needs. Downscaling a single master (rather than rendering each size straight from SVG) keeps the glow filters consistent — a 16px canvas would resolve them completely differently and the small icons wouldn't match the large one.
 
 ## Relationship to Mole, and licensing
 

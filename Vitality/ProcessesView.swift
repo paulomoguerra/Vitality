@@ -3,26 +3,21 @@ import SwiftUI
 struct ProcessesView: View {
     @State private var processes: [RunningProcess] = []
     @State private var query = ""
-    @State private var sort: SortField = .cpu
     @State private var pendingQuit: RunningProcess?
     @State private var errorMessage: String?
     @State private var refreshTimer: Timer?
 
-    enum SortField: String, CaseIterable, Identifiable {
-        case cpu = "CPU", memory = "Memory", name = "Name"
-        var id: String { rawValue }
-    }
+    /// Bound to the Table so clicking a column header re-sorts. Binding this
+    /// alone does nothing — `visible` must also apply it via `sorted(using:)`.
+    @State private var sortOrder: [KeyPathComparator<RunningProcess>] = [
+        KeyPathComparator(\RunningProcess.cpu, order: .reverse)
+    ]
 
     private var visible: [RunningProcess] {
         let filtered = query.isEmpty
             ? processes
             : processes.filter { $0.name.localizedCaseInsensitiveContains(query) }
-
-        switch sort {
-        case .cpu:    return filtered.sorted { $0.cpu > $1.cpu }
-        case .memory: return filtered.sorted { $0.memoryBytes > $1.memoryBytes }
-        case .name:   return filtered.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        }
+        return filtered.sorted(using: sortOrder)
     }
 
     var body: some View {
@@ -30,39 +25,32 @@ struct ProcessesView: View {
             HStack {
                 TextField("Filter processes", text: $query)
                     .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 220)
-
-                Picker("", selection: $sort) {
-                    ForEach(SortField.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 210)
-
+                    .frame(maxWidth: 240)
                 Spacer()
-                Text("\(visible.count) shown")
+                Text("\(visible.count) of \(processes.count)")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
 
-            Table(visible) {
-                TableColumn("Process") { process in
+            Table(visible, sortOrder: $sortOrder) {
+                TableColumn("Process", value: \.name) { process in
                     Text(process.name).font(.system(size: 12)).lineLimit(1)
                 }
-                TableColumn("PID") { process in
-                    Text("\(process.pid)")
+                TableColumn("PID", value: \.pid) { process in
+                    Text(verbatim: "\(process.pid)")
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
-                .width(58)
-                TableColumn("CPU") { process in
+                .width(60)
+                TableColumn("CPU", value: \.cpu) { process in
                     Text(Fmt.percent(process.cpu, decimals: 1))
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Severity.forUsage(process.cpu))
                 }
-                .width(62)
-                TableColumn("Memory") { process in
+                .width(64)
+                TableColumn("Memory", value: \.memoryBytes) { process in
                     Text(Fmt.bytes(process.memoryBytes)).font(.system(size: 11))
                 }
-                .width(78)
+                .width(80)
                 TableColumn("") { process in
                     Button("Quit") { pendingQuit = process }
                         .font(.system(size: 11))
@@ -73,8 +61,9 @@ struct ProcessesView: View {
                 }
                 .width(52)
             }
+            .frame(minHeight: 240)
 
-            Text("System processes owned by root can't be quit from here — that's macOS, not Vitality.")
+            Text("Click a column header to sort. System processes owned by root can't be quit from here — that's macOS, not Vitality.")
                 .font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .onAppear(perform: start)

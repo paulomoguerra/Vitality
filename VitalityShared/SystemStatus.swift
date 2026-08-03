@@ -1,5 +1,28 @@
 import Foundation
 
+/// GPU figures Vitality measures itself through IOKit.
+///
+/// Kept separate from `SystemStatus.GPU` (which mirrors Mole's payload) because
+/// the two have different provenance: Mole's `gpu[].usage` is `-1` on Apple
+/// silicon, while these come from the IOAccelerator registry and are real.
+struct GPUStats: Codable, Equatable {
+    let name: String?
+    /// Overall device utilisation, 0–100.
+    let utilization: Double?
+    let rendererUtilization: Double?
+    let tilerUtilization: Double?
+    let inUseMemory: Int64?
+    let allocatedMemory: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case name, utilization
+        case rendererUtilization = "renderer_utilization"
+        case tilerUtilization = "tiler_utilization"
+        case inUseMemory = "in_use_memory"
+        case allocatedMemory = "allocated_memory"
+    }
+}
+
 /// Decoded from `mo status --json`.
 ///
 /// Every field is optional on purpose. Mole is a separate project on its own
@@ -145,6 +168,14 @@ struct SystemStatus: Codable {
         }
     }
 
+    /// GPU figures Vitality measures itself via IOKit.
+    ///
+    /// Not part of Mole's payload — Mole reports `usage: -1` on Apple silicon,
+    /// so this is absent when decoding `mo status --json` and is filled in by
+    /// the app before the snapshot is written to the shared container. `var`
+    /// rather than `let` precisely so the poller can attach it.
+    var measuredGPU: GPUStats?
+
     let host: String?
     let platform: String?
     let uptime: String?
@@ -164,6 +195,7 @@ struct SystemStatus: Codable {
 
     enum CodingKeys: String, CodingKey {
         case host, platform, uptime, procs, hardware, cpu, gpu, memory, disks, thermal, batteries
+        case measuredGPU = "measured_gpu"
         case healthScore = "health_score"
         case healthScoreMsg = "health_score_msg"
         case trashSize = "trash_size"

@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    Vitality app icon.
+
+    Geometry follows Apple's macOS grid: an 824x824 rounded rect centred on a
+    1024 canvas, leaving margin for the baked-in shadow and the system's hover
+    scaling. Edit this file and re-run scripts/make-icon.py to regenerate the
+    asset catalogue.
+
+    The mark is the app's own HealthRing with a pulse through it — the same
+    element the menu bar and dashboard use for the health score.
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1B3A44"/>
+      <stop offset="55%" stop-color="#102730"/>
+      <stop offset="100%" stop-color="#0A171C"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#1EAF64"/>
+      <stop offset="55%" stop-color="#3BE08C"/>
+      <stop offset="100%" stop-color="#93F5C8"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.14"/>
+      <stop offset="45%" stop-color="#FFFFFF" stop-opacity="0.03"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="22" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="shadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#000000" flood-opacity="0.34"/>
+    </filter>
+  </defs>
+
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#bg)" filter="url(#shadow)"/>
+
+  <!-- Health ring: track, then a 76% arc starting at 12 o'clock. -->
+  <circle cx="512" cy="512" r="292" fill="none" stroke="#FFFFFF" stroke-opacity="0.13" stroke-width="74"/>
+  <circle cx="512" cy="512" r="292" fill="none" stroke="url(#green)" stroke-width="74"
+          stroke-linecap="round" stroke-dasharray="1394.2 1834.7"
+          transform="rotate(-90 512 512)" filter="url(#glow)"/>
+
+  <!-- Pulse. Deliberately bold and few-inflection so it survives downscaling. -->
+  <path d="M 352 512 H 424 L 462 512 L 500 408 L 552 632 L 596 470 L 626 512 H 672"
+        fill="none" stroke="#FFFFFF" stroke-width="50"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#sheen)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="none"
+        stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="3"/>
+</svg>

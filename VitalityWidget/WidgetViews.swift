@@ -106,6 +106,10 @@ struct MediumStatusView: View {
 
             HStack {
                 Label(Fmt.watts(status?.thermal?.systemPower), systemImage: "bolt.fill")
+                if let gpu = status?.measuredGPU, gpu.utilization != nil {
+                    Spacer()
+                    Label("GPU \(Fmt.percent(gpu.utilization))", systemImage: "cpu.fill")
+                }
                 Spacer()
                 if let battery = status?.battery {
                     Label("\(battery.percent.map { "\($0)%" } ?? "—")", systemImage: "battery.100")
@@ -149,6 +153,10 @@ struct LargeStatusView: View {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                 metric("CPU", Fmt.percent(status?.cpu?.usage), status?.cpu?.usage,
                        sub: "\(status?.cpu?.coreCount.map(String.init) ?? "—") cores")
+                if let gpu = status?.measuredGPU, gpu.utilization != nil {
+                    metric("GPU", Fmt.percent(gpu.utilization), gpu.utilization,
+                           sub: gpu.inUseMemory.map { Fmt.bytes($0) } ?? "—")
+                }
                 metric("Memory", Fmt.percent(status?.memory?.usedPercent), status?.memory?.usedPercent,
                        sub: Fmt.bytes(status?.memory?.used))
                 metric("Disk", Fmt.percent(status?.primaryDisk?.usedPercent), status?.primaryDisk?.usedPercent,

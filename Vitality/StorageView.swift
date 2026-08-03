@@ -4,17 +4,25 @@ import SwiftUI
 struct StorageView: View {
     @ObservedObject var poller: StatusPoller
 
-    @State private var path: String = DiskAnalyzer.suggestedRoots.first?.path ?? ""
+    @State private var root: String = DiskAnalyzer.suggestedRoots.first?.path ?? ""
+    @State private var path: String = ""
     @State private var entries: [DiskEntry] = []
     @State private var breadcrumb: [String] = []
     @State private var isAnalyzing = false
     @State private var analyzeError: String?
+    @State private var didAutoScan = false
     @State private var pendingTrash: DiskEntry?
     @State private var actionError: String?
 
+    @State private var sort: [KeyPathComparator<DiskEntry>] = [
+        KeyPathComparator(\DiskEntry.sortSize, order: .reverse)
+    ]
+
+    private var sortedEntries: [DiskEntry] { entries.sorted(using: sort) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            disks
+            volumes
             Divider()
             browser
         }
@@ -42,7 +50,7 @@ struct StorageView: View {
 
     // MARK: Volumes
 
-    private var disks: some View {
+    private var volumes: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Volumes").font(.system(size: 11, weight: .medium))
@@ -50,26 +58,31 @@ struct StorageView: View {
                 Spacer()
                 Button("Free up space with Mole…") { MoleCLI.openInTerminal("clean") }
                     .font(.system(size: 11))
-                    .help("Mole's cleanup is an interactive terminal tool, so Vitality hands off to Terminal rather than driving it blindly.")
+                    .help("Mole's cleanup is an interactive terminal tool, so Vitality hands off to Terminal rather than driving a UI that deletes files.")
             }
 
-            ForEach(poller.latest?.userDisks ?? []) { disk in
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack {
-                        Text(disk.mount ?? disk.device ?? "—")
-                            .font(.system(size: 12, weight: .medium)).lineLimit(1)
-                        if disk.external == true {
-                            Text("external").font(.system(size: 9)).foregroundStyle(.tertiary)
+            if (poller.latest?.userDisks ?? []).isEmpty {
+                Text("Waiting for volume data…")
+                    .font(.system(size: 11)).foregroundStyle(.tertiary)
+            } else {
+                ForEach(poller.latest?.userDisks ?? []) { disk in
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text(disk.mount ?? disk.device ?? "—")
+                                .font(.system(size: 12, weight: .medium)).lineLimit(1)
+                            if disk.external == true {
+                                Text("external").font(.system(size: 9)).foregroundStyle(.tertiary)
+                            }
+                            Spacer()
+                            Text("\(Fmt.bytes(disk.free)) free of \(Fmt.bytes(disk.total))")
+                                .font(.system(size: 11)).foregroundStyle(.secondary)
+                            Text(Fmt.percent(disk.usedPercent))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(Severity.forUsage(disk.usedPercent))
+                                .frame(width: 48, alignment: .trailing)
                         }
-                        Spacer()
-                        Text("\(Fmt.bytes(disk.free)) free of \(Fmt.bytes(disk.total))")
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
-                        Text(Fmt.percent(disk.usedPercent))
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Severity.forUsage(disk.usedPercent))
-                            .frame(width: 46, alignment: .trailing)
+                        MiniBar(percent: disk.usedPercent, height: 5)
                     }
-                    MiniBar(percent: disk.usedPercent, height: 5)
                 }
             }
         }
@@ -80,62 +93,107 @@ struct StorageView: View {
     private var browser: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Text("Find large files").font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
+                Text("Find large files")
+                    .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
 
-                Menu("Scan…") {
-                    ForEach(DiskAnalyzer.suggestedRoots, id: \.path) { root in
-                        Button(root.label) { analyze(root.path, resetBreadcrumb: true) }
+                Picker("", selection: $root) {
+                    ForEach(DiskAnalyzer.suggestedRoots, id: \.path) { entry in
+                        Text(entry.label).tag(entry.path)
                     }
-                    Divider()
-                    Button("Choose Folder…") { chooseFolder() }
                 }
-                .frame(width: 110)
+                .labelsHidden()
+                .frame(width: 170)
+
+                Button("Scan") { analyze(root, resetBreadcrumb: true) }
+                    .disabled(isAnalyzing)
+                Button("Choose Folder…") { chooseFolder() }
+                    .disabled(isAnalyzing)
 
                 if !breadcrumb.isEmpty {
-                    Button {
-                        goUp()
-                    } label: {
-                        Label("Up", systemImage: "chevron.up")
-                    }
-                    .font(.system(size: 11))
+                    Button { goUp() } label: { Label("Up", systemImage: "chevron.up") }
+                        .disabled(isAnalyzing)
                 }
 
                 Spacer()
                 if isAnalyzing { ProgressView().controlSize(.small) }
             }
 
-            Text(path.isEmpty ? "Pick a folder to scan" : path)
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1).truncationMode(.head)
-
-            if let analyzeError {
-                Label(analyzeError, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11)).foregroundStyle(.orange)
+            if !path.isEmpty {
+                Text(path)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1).truncationMode(.head)
             }
 
-            Table(entries) {
-                TableColumn("Name") { entry in
+            content
+        }
+        .onAppear {
+            // Scan once on first open. Guarded by a flag rather than
+            // `entries.isEmpty`, or every tab switch re-triggers a full scan.
+            guard !didAutoScan else { return }
+            didAutoScan = true
+            analyze(root, resetBreadcrumb: true)
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if isAnalyzing && entries.isEmpty {
+            centered {
+                ProgressView()
+                Text("Scanning \((path as NSString).lastPathComponent)…")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("Large folders can take a while — Mole walks the whole tree.")
+                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+            }
+        } else if let analyzeError {
+            centered {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 20)).foregroundStyle(.orange)
+                Text(analyzeError)
+                    .font(.system(size: 11)).multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                if isProtected(path) {
+                    Text("Downloads, Desktop and Documents are protected by macOS. Vitality needs your permission the first time it reads one.")
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Open Privacy Settings") {
+                        NSWorkspace.shared.open(URL(string:
+                            "x-apple.systempreferences:com.apple.preference.security?Privacy_Files")!)
+                    }
+                    .font(.system(size: 11))
+                }
+            }
+        } else if entries.isEmpty {
+            centered {
+                Image(systemName: "folder").font(.system(size: 20)).foregroundStyle(.secondary)
+                Text("Nothing to show in this folder.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+        } else {
+            Table(sortedEntries, sortOrder: $sort) {
+                TableColumn("Name", value: \.sortName) { entry in
                     HStack(spacing: 5) {
                         Image(systemName: entry.isDir == true ? "folder.fill" : "doc")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 10)).foregroundStyle(.secondary)
                         Text(entry.displayName).font(.system(size: 12)).lineLimit(1)
                     }
                 }
-                TableColumn("Size") { entry in
-                    Text(Fmt.bytes(entry.size))
-                        .font(.system(size: 11, weight: .medium))
+                TableColumn("Kind", value: \.sortKind) { entry in
+                    Text(entry.isDir == true ? "Folder" : "File")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                .width(58)
+                TableColumn("Size", value: \.sortSize) { entry in
+                    Text(Fmt.bytes(entry.size)).font(.system(size: 11, weight: .medium))
                 }
                 .width(84)
                 TableColumn("") { entry in
                     HStack(spacing: 4) {
                         if entry.isDir == true {
-                            Button("Open") {
-                                if let p = entry.path { drillInto(p) }
-                            }
-                            .font(.system(size: 11))
+                            Button("Open") { if let p = entry.path { drillInto(p) } }
+                                .font(.system(size: 11))
                         }
                         Button("Reveal") {
                             if let p = entry.path { DiskAnalyzer.revealInFinder(p) }
@@ -145,22 +203,37 @@ struct StorageView: View {
                             .font(.system(size: 11))
                     }
                 }
-                .width(150)
+                .width(156)
             }
+            .frame(minHeight: 200)
 
-            Text("Sizes come from Mole's analyzer. Deleting moves items to the Trash.")
+            Text("Click a column header to sort. Sizes come from Mole's analyzer; deleting moves items to the Trash.")
                 .font(.system(size: 10)).foregroundStyle(.tertiary)
         }
-        .onAppear { if entries.isEmpty && !path.isEmpty { analyze(path, resetBreadcrumb: true) } }
+    }
+
+    private func centered<C: View>(@ViewBuilder _ inner: () -> C) -> some View {
+        VStack(spacing: 6) { inner() }
+            .frame(maxWidth: .infinity, minHeight: 200)
+            .padding(.horizontal, 30)
+    }
+
+    private func isProtected(_ candidate: String) -> Bool {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return ["Downloads", "Desktop", "Documents"].contains {
+            candidate.hasPrefix("\(home)/\($0)")
+        }
     }
 
     // MARK: Actions
 
     private func analyze(_ target: String, resetBreadcrumb: Bool) {
+        guard !target.isEmpty else { return }
         if resetBreadcrumb { breadcrumb = [] }
         path = target
         isAnalyzing = true
         analyzeError = nil
+        entries = []
 
         Task.detached(priority: .userInitiated) {
             let result = DiskAnalyzer.analyze(path: target)
@@ -168,10 +241,10 @@ struct StorageView: View {
                 isAnalyzing = false
                 switch result {
                 case .success(let analysis):
-                    // Mole returns entries largest-first, but sort defensively so
-                    // the view doesn't depend on that staying true.
-                    entries = (analysis.entries ?? []).sorted { ($0.size ?? 0) > ($1.size ?? 0) }
-                    if entries.isEmpty { analyzeError = "Nothing found in this folder." }
+                    // Mole returns largest-first, but sort defensively so the
+                    // view never depends on that staying true.
+                    entries = (analysis.entries ?? [])
+                        .sorted { ($0.size ?? 0) > ($1.size ?? 0) }
                 case .failure(let error):
                     entries = []
                     analyzeError = error.localizedDescription

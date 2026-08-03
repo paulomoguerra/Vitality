@@ -86,6 +86,65 @@ struct CPUDetailPane: View {
     }
 }
 
+// MARK: - GPU
+
+struct GPUDetailPane: View {
+    let status: SystemStatus?
+    let back: () -> Void
+
+    var body: some View {
+        let gpu = status?.measuredGPU
+        let moleGPU = status?.gpu?.first
+
+        VStack(alignment: .leading, spacing: 0) {
+            PaneHeader(title: "GPU", back: back)
+
+            DetailLine(label: "Utilisation", value: Fmt.percent(gpu?.utilization, decimals: 1))
+            MiniBar(percent: gpu?.utilization)
+                .padding(.horizontal, 14).padding(.vertical, 5)
+
+            if let name = gpu?.name ?? moleGPU?.name {
+                DetailLine(label: "Chip", value: name)
+            }
+            if let cores = moleGPU?.coreCount, cores > 0 {
+                DetailLine(label: "Cores", value: "\(cores)")
+            }
+
+            Divider().padding(.vertical, 8)
+
+            // Renderer vs tiler splits the work Apple's TBDR pipeline does:
+            // tiler handles geometry binning, renderer shades the tiles.
+            Text("Breakdown")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 14).padding(.bottom, 3)
+
+            DetailLine(label: "Renderer", value: Fmt.percent(gpu?.rendererUtilization, decimals: 1))
+            DetailLine(label: "Tiler", value: Fmt.percent(gpu?.tilerUtilization, decimals: 1))
+
+            if let inUse = gpu?.inUseMemory, inUse > 0 {
+                Divider().padding(.vertical, 8)
+                DetailLine(label: "Memory in use", value: Fmt.bytes(inUse))
+                if let allocated = gpu?.allocatedMemory, allocated > 0 {
+                    DetailLine(label: "Allocated", value: Fmt.bytes(allocated))
+                }
+                Text("Apple silicon shares memory between CPU and GPU — this is part of your RAM, not separate VRAM.")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14).padding(.top, 4)
+            }
+
+            Text("Measured by Vitality via IOKit — Mole doesn't report GPU usage on Apple silicon.")
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 14).padding(.top, 8)
+        }
+        .padding(.bottom, 6)
+    }
+}
+
 // MARK: - Memory
 
 struct MemoryDetailPane: View {
