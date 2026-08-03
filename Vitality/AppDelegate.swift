@@ -1,13 +1,16 @@
 import Cocoa
+import OSLog
 import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let log = Logger(subsystem: "com.paulomateus.vitality", category: "app")
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var poller: StatusPoller!
     private var dashboard: DashboardWindowController!
     private var eventMonitor: Any?
+    private var onboardingWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         LoginItem.register()
@@ -35,6 +38,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self, self.popover.isShown else { return }
             self.popover.performClose(nil)
         }
+
+        // Vitality is inert without Mole, and it has no Dock icon — so a first
+        // run with Mole missing would otherwise be a menu bar item quietly
+        // reporting an error the user has no way to act on.
+        if MoleCLI.isInstalled {
+            log.info("launch: mole present, skipping onboarding")
+        } else {
+            log.info("launch: mole missing, showing onboarding")
+            showOnboarding()
+        }
+    }
+
+    func showOnboarding() {
+        if let onboardingWindow {
+            onboardingWindow.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let hosting = NSHostingController(rootView: OnboardingView(onReady: { [weak self] in
+            self?.onboardingWindow?.close()
+        }))
+        let window = NSWindow(contentViewController: hosting)
+        window.title = "Vitality Setup"
+        window.styleMask = [.titled, .closable]
+        window.center()
+        window.isReleasedWhenClosed = false
+
+        onboardingWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     func applicationWillTerminate(_ notification: Notification) {

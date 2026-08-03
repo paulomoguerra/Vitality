@@ -119,9 +119,8 @@ struct MenuBarView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if error == .notInstalled {
-                Button("Copy install command") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString("brew install mole", forType: .string)
+                Button("Install Mole…") {
+                    MoleCLI.installMole()
                 }
                 .font(.system(size: 11))
             }

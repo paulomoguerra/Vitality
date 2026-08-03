@@ -107,19 +107,50 @@ enum MoleCLI {
     @discardableResult
     static func runInTerminal(_ subcommand: String) -> Result<Void, ActionError> {
         guard let path = executablePath else {
-            return .failure(ActionError("Mole isn't installed. Run `brew install mole` in Terminal."))
+            return .failure(ActionError("Mole isn't installed."))
         }
+        return openInTerminal(
+            name: "mo-\(subcommand)",
+            banner: "Vitality is handing off to Mole — this is Mole's own interactive tool.",
+            command: "\"\(path)\" \(subcommand)"
+        )
+    }
 
+    static var homebrewPath: String? {
+        ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
+            .first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    static var isHomebrewInstalled: Bool { homebrewPath != nil }
+
+    /// Installs Mole via Homebrew in a visible Terminal window.
+    ///
+    /// Deliberately *not* run silently in the background: `brew install` can
+    /// prompt for a password, take minutes, and fail in ways worth reading.
+    /// Hiding that behind a spinner would be worse than showing the real thing.
+    static func installMole() -> Result<Void, ActionError> {
+        guard let brew = homebrewPath else {
+            return .failure(ActionError("Homebrew isn't installed — Vitality needs it to install Mole."))
+        }
+        return openInTerminal(
+            name: "install-mole",
+            banner: "Installing Mole with Homebrew. You can close this window when it finishes.",
+            command: "\"\(brew)\" install mole"
+        )
+    }
+
+    private static func openInTerminal(name: String, banner: String,
+                                       command: String) -> Result<Void, ActionError> {
         let script = """
         #!/bin/bash
         clear
-        echo "Vitality is handing off to Mole — this is Mole's own interactive tool."
+        echo "\(banner)"
         echo
-        exec "\(path)" \(subcommand)
+        exec \(command)
         """
 
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("vitality-mo-\(subcommand).command")
+            .appendingPathComponent("vitality-\(name).command")
         do {
             try script.write(to: url, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755],
@@ -129,7 +160,7 @@ enum MoleCLI {
         }
 
         guard NSWorkspace.shared.open(url) else {
-            return .failure(ActionError("Couldn't open Terminal to run `mo \(subcommand)`."))
+            return .failure(ActionError("Couldn't open Terminal."))
         }
         return .success(())
     }
