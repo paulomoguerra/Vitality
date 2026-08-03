@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"><defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%"  stop-color="#1B3A44"/>
+    <stop offset="55%" stop-color="#102730"/>
+    <stop offset="100%" stop-color="#0A171C"/>
+  </linearGradient>
+  <linearGradient id="green" x1="0" y1="1" x2="1" y2="0">
+    <stop offset="0%"   stop-color="#1EAF64"/>
+    <stop offset="55%"  stop-color="#3BE08C"/>
+    <stop offset="100%" stop-color="#93F5C8"/>
+  </linearGradient>
+  <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%"   stop-color="#FFFFFF" stop-opacity="0.14"/>
+    <stop offset="45%"  stop-color="#FFFFFF" stop-opacity="0.03"/>
+    <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+  </linearGradient>
+  <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+    <feGaussianBlur stdDeviation="20" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  <filter id="shadow" x="-25%" y="-25%" width="150%" height="150%">
+    <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#000000" flood-opacity="0.34"/>
+  </filter>
+<mask id="carve"><rect x="0" y="0" width="1024" height="1024" fill="white"/><path d="M 322 496 H 388 L 420 496 L 458 408 L 512 606 L 558 456 L 590 496 H 702" fill="none" stroke="black" stroke-width="46" stroke-linecap="round" stroke-linejoin="round"/></mask></defs><rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#bg)" filter="url(#shadow)"/><g filter="url(#glow)"><path d="M 512,700.0 C 220.8,490.0 232.0,310.0 372.0,310.0 C 456.0,310.0 506.4,380.0 512,420.0 C 517.6,380.0 568.0,310.0 652.0,310.0 C 792.0,310.0 803.2,490.0 512,700.0 Z" fill="url(#green)" mask="url(#carve)"/></g><rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#sheen)"/><rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="3"/></svg>

@@ -120,6 +120,18 @@ python3 scripts/make-icon.py
 
 That renders one 1024px master and downscales it to every size macOS needs. Downscaling a single master (rather than rendering each size straight from SVG) keeps the glow filters consistent — a 16px canvas would resolve them completely differently and the small icons wouldn't match the large one.
 
+Three alternate designs live in [`design/alternates/`](design/alternates). To adopt one, copy it over `design/icon.svg` and regenerate:
+
+```bash
+cp design/alternates/light-clinical.svg design/icon.svg && python3 scripts/make-icon.py && xcodegen generate
+```
+
+| Alternate | Idea |
+|---|---|
+| `v-monogram.svg` | A heartbeat whose downstroke reads as a letter **V** — name and mark in one |
+| `light-clinical.svg` | Pale, clinical tone; the only light option, so it stands out in a dark Dock |
+| `heart-pulse.svg` | Solid heart with the pulse carved out as negative space |
+
 ## Relationship to Mole, and licensing
 
 Vitality is an independent project. It is **not** affiliated with, sponsored by, or endorsed by Mole or its author.

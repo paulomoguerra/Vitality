@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"><defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%"  stop-color="#1B3A44"/>
+    <stop offset="55%" stop-color="#102730"/>
+    <stop offset="100%" stop-color="#0A171C"/>
+  </linearGradient>
+  <linearGradient id="bgLight" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%"  stop-color="#FBFEFC"/>
+    <stop offset="55%" stop-color="#E8F2EC"/>
+    <stop offset="100%" stop-color="#D3E5DC"/>
+  </linearGradient>
+  <linearGradient id="green" x1="0" y1="1" x2="1" y2="0">
+    <stop offset="0%"   stop-color="#1EAF64"/>
+    <stop offset="55%"  stop-color="#3BE08C"/>
+    <stop offset="100%" stop-color="#93F5C8"/>
+  </linearGradient>
+  <linearGradient id="greenDeep" x1="0" y1="1" x2="1" y2="0">
+    <stop offset="0%"   stop-color="#0E7A47"/>
+    <stop offset="60%"  stop-color="#16A863"/>
+    <stop offset="100%" stop-color="#2FCB84"/>
+  </linearGradient>
+  <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%"   stop-color="#FFFFFF" stop-opacity="0.14"/>
+    <stop offset="45%"  stop-color="#FFFFFF" stop-opacity="0.03"/>
+    <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+  </linearGradient>
+  <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+    <feGaussianBlur stdDeviation="20" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  <filter id="shadow" x="-25%" y="-25%" width="150%" height="150%">
+    <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#000000" flood-opacity="0.34"/>
+  </filter>
+</defs><rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#bg)" filter="url(#shadow)"/>
+<path d="M 188 424 H 356 L 402 424 L 512 742 L 622 424 L 668 424 H 836" fill="none" stroke="url(#green)" stroke-width="86"
+      stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+<circle cx="836" cy="424" r="30" fill="#93F5C8"/><rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#sheen)"/><rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="3"/></svg>
