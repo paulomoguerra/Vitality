@@ -208,10 +208,18 @@ struct SystemStatus: Codable {
         disks?.first(where: { $0.mount == "/" }) ?? disks?.first
     }
 
-    /// Disks worth showing. Zero-sized entries are placeholders Mole emits for
-    /// volumes it could not stat, and they'd render as empty rows.
+    /// Disks worth showing the user.
+    ///
+    /// Zero-sized entries are placeholders Mole emits for volumes it couldn't
+    /// stat. Xcode's simulator runtimes also mount as separate volumes and are
+    /// pure noise on a dev machine — they're managed by Xcode, always near
+    /// full, and nothing the user can act on.
     var userDisks: [Disk] {
-        (disks ?? []).filter { ($0.total ?? 0) > 0 }
+        (disks ?? []).filter { disk in
+            guard (disk.total ?? 0) > 0 else { return false }
+            if let mount = disk.mount, mount.contains("/CoreSimulator/Volumes/") { return false }
+            return true
+        }
     }
 
     var battery: Battery? { batteries?.first }

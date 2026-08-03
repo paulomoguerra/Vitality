@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 enum MoleError: LocalizedError, Equatable {
@@ -97,16 +98,39 @@ enum MoleCLI {
     /// `uninstall`, which are interactive TUIs with no JSON or non-interactive
     /// mode — driving them headlessly would mean screen-scraping a UI that can
     /// delete files, so Vitality deliberately doesn't try.
-    static func openInTerminal(_ subcommand: String) {
-        guard let path = executablePath else { return }
+    ///
+    /// Writes an executable `.command` file and opens it, rather than using
+    /// `NSAppleScript` with `tell application "Terminal"`. AppleScript would
+    /// require Automation (Apple Events) consent, and without it the call fails
+    /// *silently* — the button appears to do nothing at all. Opening a
+    /// `.command` goes through LaunchServices and needs no such permission.
+    @discardableResult
+    static func runInTerminal(_ subcommand: String) -> Result<Void, ActionError> {
+        guard let path = executablePath else {
+            return .failure(ActionError("Mole isn't installed. Run `brew install mole` in Terminal."))
+        }
+
         let script = """
-        tell application "Terminal"
-            activate
-            do script "\(path) \(subcommand)"
-        end tell
+        #!/bin/bash
+        clear
+        echo "Vitality is handing off to Mole — this is Mole's own interactive tool."
+        echo
+        exec "\(path)" \(subcommand)
         """
-        guard let appleScript = NSAppleScript(source: script) else { return }
-        var error: NSDictionary?
-        appleScript.executeAndReturnError(&error)
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vitality-mo-\(subcommand).command")
+        do {
+            try script.write(to: url, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755],
+                                                  ofItemAtPath: url.path)
+        } catch {
+            return .failure(ActionError("Couldn't prepare the command: \(error.localizedDescription)"))
+        }
+
+        guard NSWorkspace.shared.open(url) else {
+            return .failure(ActionError("Couldn't open Terminal to run `mo \(subcommand)`."))
+        }
+        return .success(())
     }
 }

@@ -38,17 +38,39 @@ Vitality does **not** bundle Mole. You install it yourself, and Vitality runs it
 
 ## Install
 
-Build the disk image:
-
 ```bash
 ./scripts/make-dmg.sh
 ```
 
-Then open `build/Vitality-<version>.dmg` and drag Vitality to Applications.
-
-> **Signing:** the DMG is signed with whatever identity your team provides. An *Apple Development* identity is enough to run Vitality on **your own** Mac, but macOS will refuse it on anyone else's. Distributing to other people needs the paid Apple Developer Program, a *Developer ID Application* certificate, and notarisation via `xcrun notarytool`. There is no notarised release yet.
+Open `build/Vitality-<version>.dmg` and drag Vitality to Applications. That's the whole install.
 
 **The widgets need the app to be running.** Vitality registers itself as a login item on first launch, so this normally takes care of itself. To add a widget: right-click the desktop or open Notification Centre → Edit Widgets → search for Vitality.
+
+### Why there's no download link yet
+
+There is deliberately **no GitHub Release**, because a downloaded build would not run on your Mac — and shipping a download that fails is worse than shipping none.
+
+macOS only applies Gatekeeper to *quarantined* files. A DMG you build locally is never quarantined, so it installs and runs fine. Anything **downloaded** gets `com.apple.quarantine` stamped on it by the browser, Gatekeeper evaluates the signature, and a build signed with an *Apple Development* certificate is rejected — usually with "Vitality is damaged and can't be opened". The right-click → Open trick rescues an *unidentified developer*, but it does not bypass that message.
+
+Making the download work needs three things, all gated behind Apple's paid Developer Program (~$99/yr):
+
+1. A **Developer ID Application** certificate
+2. **Notarisation** — Apple scans and signs off on the build
+3. **Stapling** the resulting ticket to the DMG
+
+`scripts/make-dmg.sh` already handles all three. It detects a Developer ID certificate automatically and switches to it, and reports Gatekeeper's verdict on every build so the artefact's status is never a guess. Once you have the certificate, store notary credentials once:
+
+```bash
+xcrun notarytool store-credentials vitality-notary --apple-id you@example.com --team-id XXXXXXXXXX --password <app-specific-password>
+```
+
+and from then on build releases with:
+
+```bash
+NOTARIZE=1 ./scripts/make-dmg.sh
+```
+
+That produces a DMG anyone can download and drag into Applications with no warnings and no Terminal.
 
 ## Build from source
 

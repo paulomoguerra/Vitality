@@ -10,10 +10,14 @@ enum Severity {
         return .green
     }
 
+    /// Thresholds deliberately match Mole's own wording: it grades ~85+ as
+    /// "Excellent" and roughly 70–84 as "Good". Using 80 as the green cutoff
+    /// put an alarmist orange ring next to the word "Good" — the UI
+    /// contradicting its own label.
     static func forHealth(_ score: Int?) -> Color {
         guard let score else { return .secondary }
-        if score >= 80 { return .green }
-        if score >= 50 { return .orange }
+        if score >= 70 { return .green }
+        if score >= 40 { return .orange }
         return .red
     }
 }

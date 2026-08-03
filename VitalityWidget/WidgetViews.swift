@@ -138,32 +138,63 @@ struct LargeStatusView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                HealthRing(score: status?.healthScore, lineWidth: 6)
-                    .frame(width: 38, height: 38)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(status?.hardware?.model ?? status?.host ?? "This Mac")
-                        .font(.system(size: 13, weight: .medium)).lineLimit(1)
-                    Text("\(status?.healthScore.map(String.init) ?? "—") · \(status?.healthScoreMsg ?? "—") · up \(status?.uptime ?? "—")")
-                        .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+            HStack(spacing: 11) {
+                // Score inside the ring, matching the dashboard header — the
+                // ring alone was decorative and the number lived in the
+                // subtitle, so the two surfaces read differently.
+                ZStack {
+                    HealthRing(score: status?.healthScore, lineWidth: 6)
+                    Text(status?.healthScore.map(String.init) ?? "—")
+                        .font(.system(size: 15, weight: .semibold))
                 }
-                Spacer()
+                .frame(width: 44, height: 44)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(status?.hardware?.model ?? status?.host ?? "This Mac")
+                        .font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                    Text(status?.healthScoreMsg ?? "—")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Severity.forHealth(status?.healthScore))
+                        .lineLimit(1)
+                    Text("Up \(status?.uptime ?? "—")")
+                        .font(.system(size: 9)).foregroundStyle(.tertiary).lineLimit(1)
+                }
+                Spacer(minLength: 0)
             }
 
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+            // `alignment: .leading` is load-bearing: GridItem centres cell
+            // content by default. The four bar metrics fill their cell so they
+            // looked fine, but any narrower cell drifted to the middle.
+            LazyVGrid(columns: [
+                GridItem(.flexible(), spacing: 14, alignment: .leading),
+                GridItem(.flexible(), spacing: 14, alignment: .leading),
+            ], spacing: 13) {
                 metric("CPU", Fmt.percent(status?.cpu?.usage), status?.cpu?.usage,
                        sub: "\(status?.cpu?.coreCount.map(String.init) ?? "—") cores")
-                if let gpu = status?.measuredGPU, gpu.utilization != nil {
-                    metric("GPU", Fmt.percent(gpu.utilization), gpu.utilization,
-                           sub: gpu.inUseMemory.map { Fmt.bytes($0) } ?? "—")
-                }
+                metric("GPU", Fmt.percent(status?.measuredGPU?.utilization),
+                       status?.measuredGPU?.utilization,
+                       sub: status?.measuredGPU?.inUseMemory.map { "\(Fmt.bytes($0)) used" } ?? "—")
                 metric("Memory", Fmt.percent(status?.memory?.usedPercent), status?.memory?.usedPercent,
-                       sub: Fmt.bytes(status?.memory?.used))
+                       sub: "\(Fmt.bytes(status?.memory?.used)) used")
                 metric("Disk", Fmt.percent(status?.primaryDisk?.usedPercent), status?.primaryDisk?.usedPercent,
                        sub: "\(Fmt.bytes(status?.primaryDisk?.free)) free")
-                metric("Power", Fmt.watts(status?.thermal?.systemPower), nil,
-                       sub: status?.battery.map { "Battery \($0.percent.map { p in "\(p)%" } ?? "—")" } ?? "—")
             }
+
+            // Power has no percentage, so it can't carry a bar like the four
+            // above. As a fifth grid cell it sat alone next to a dead hole.
+            HStack(spacing: 5) {
+                Image(systemName: "bolt.fill").font(.system(size: 9))
+                Text(Fmt.watts(status?.thermal?.systemPower))
+                    .font(.system(size: 11, weight: .medium))
+                if let battery = status?.battery {
+                    Text("·").foregroundStyle(.tertiary)
+                    Image(systemName: "battery.100").font(.system(size: 9))
+                    Text("\(battery.percent.map { "\($0)%" } ?? "—") \(battery.status ?? "")")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.secondary)
 
             if let processes = status?.topProcesses, !processes.isEmpty {
                 Divider()
@@ -186,10 +217,14 @@ struct LargeStatusView: View {
 
     private func metric(_ label: String, _ value: String, _ percent: Double?, sub: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(label).font(.system(size: 10)).foregroundStyle(.secondary)
-            Text(value).font(.system(size: 16, weight: .medium))
-            if percent != nil { MiniBar(percent: percent) }
+            Text(label).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
+            Text(value).font(.system(size: 17, weight: .semibold))
+            // Always drawn, even when the value is missing. Conditionally
+            // omitting the bar makes that cell shorter than its neighbour and
+            // knocks the whole grid row out of alignment.
+            MiniBar(percent: percent)
             Text(sub).font(.system(size: 9)).foregroundStyle(.tertiary).lineLimit(1)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

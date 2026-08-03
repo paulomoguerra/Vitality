@@ -93,34 +93,74 @@ struct OverviewView: View {
         }
     }
 
+    /// Four percentage metrics in a 2x2, then power as a full-width strip.
+    ///
+    /// Power was previously the fifth cell of a two-column grid, which left a
+    /// dead hole beside it — and it's the odd one out anyway: it has no
+    /// percentage, so it can't carry a bar like the other four.
     private func metrics(_ status: SystemStatus) -> some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-            card("CPU", Fmt.percent(status.cpu?.usage, decimals: 1), status.cpu?.usage,
-                 detail: "Load \(Fmt.load(status.cpu?.load1)) · \(status.cpu?.coreCount.map(String.init) ?? "—") cores")
-            if let gpu = status.measuredGPU, gpu.utilization != nil {
-                card("GPU", Fmt.percent(gpu.utilization, decimals: 1), gpu.utilization,
-                     detail: gpu.inUseMemory.map { "\(Fmt.bytes($0)) in use" }
-                         ?? (gpu.name ?? "—"))
+        VStack(spacing: 12) {
+            LazyVGrid(columns: [
+                GridItem(.flexible(), spacing: 12, alignment: .leading),
+                GridItem(.flexible(), spacing: 12, alignment: .leading),
+            ], spacing: 12) {
+                card("CPU", Fmt.percent(status.cpu?.usage, decimals: 1), status.cpu?.usage,
+                     detail: "Load \(Fmt.load(status.cpu?.load1)) · \(status.cpu?.coreCount.map(String.init) ?? "—") cores")
+                card("GPU", Fmt.percent(status.measuredGPU?.utilization, decimals: 1),
+                     status.measuredGPU?.utilization,
+                     detail: status.measuredGPU?.inUseMemory.map { "\(Fmt.bytes($0)) in use" } ?? "—")
+                card("Memory", Fmt.percent(status.memory?.usedPercent, decimals: 1), status.memory?.usedPercent,
+                     detail: "\(Fmt.bytes(status.memory?.used)) of \(Fmt.bytes(status.memory?.total))")
+                card("Disk", Fmt.percent(status.primaryDisk?.usedPercent), status.primaryDisk?.usedPercent,
+                     detail: "\(Fmt.bytes(status.primaryDisk?.free)) free")
             }
-            card("Memory", Fmt.percent(status.memory?.usedPercent, decimals: 1), status.memory?.usedPercent,
-                 detail: "\(Fmt.bytes(status.memory?.used)) of \(Fmt.bytes(status.memory?.total))")
-            card("Disk", Fmt.percent(status.primaryDisk?.usedPercent), status.primaryDisk?.usedPercent,
-                 detail: "\(Fmt.bytes(status.primaryDisk?.free)) free")
-            card("Power", Fmt.watts(status.thermal?.systemPower), nil,
-                 detail: status.battery.map { "Battery \($0.percent.map { p in "\(p)%" } ?? "—") · \($0.status ?? "—")" } ?? "—")
+            powerStrip(status)
         }
     }
 
     private func card(_ label: String, _ value: String, _ percent: Double?, detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label).font(.system(size: 11)).foregroundStyle(.secondary)
-            Text(value).font(.system(size: 22, weight: .medium))
-            if percent != nil { MiniBar(percent: percent, height: 5) }
+        VStack(alignment: .leading, spacing: 7) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(value).font(.system(size: 26, weight: .semibold))
+            MiniBar(percent: percent, height: 5)
             Text(detail).font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
         }
-        .padding(12)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.05)))
+    }
+
+    private func powerStrip(_ status: SystemStatus) -> some View {
+        HStack(alignment: .top, spacing: 28) {
+            inlineStat("Power draw", Fmt.watts(status.thermal?.systemPower))
+            if let adapter = status.thermal?.adapterPower, adapter > 0 {
+                inlineStat("Adapter", Fmt.watts(adapter))
+            }
+            if let battery = status.battery {
+                inlineStat("Battery",
+                           "\(battery.percent.map { "\($0)%" } ?? "—") · \(battery.status ?? "—")")
+                if let capacity = battery.capacity, capacity > 0 {
+                    inlineStat("Max capacity", "\(capacity)%",
+                               tint: capacity < 80 ? .orange : .primary)
+                }
+                if let cycles = battery.cycleCount, cycles > 0 {
+                    inlineStat("Cycles", "\(cycles)")
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.05)))
+    }
+
+    private func inlineStat(_ label: String, _ value: String, tint: Color = .primary) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label).font(.system(size: 10)).foregroundStyle(.secondary)
+            Text(value).font(.system(size: 15, weight: .medium)).foregroundStyle(tint)
+        }
     }
 
     private func topProcesses(_ status: SystemStatus) -> some View {

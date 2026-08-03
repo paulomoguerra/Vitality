@@ -56,9 +56,13 @@ struct StorageView: View {
                 Text("Volumes").font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("Free up space with Mole…") { MoleCLI.openInTerminal("clean") }
-                    .font(.system(size: 11))
-                    .help("Mole's cleanup is an interactive terminal tool, so Vitality hands off to Terminal rather than driving a UI that deletes files.")
+                Button("Free up space with Mole…") {
+                    if case .failure(let error) = MoleCLI.runInTerminal("clean") {
+                        actionError = error.message
+                    }
+                }
+                .font(.system(size: 11))
+                .help("Opens Terminal and runs `mo clean`. Mole's cleanup is an interactive tool, so Vitality hands off rather than driving a UI that deletes files.")
             }
 
             if (poller.latest?.userDisks ?? []).isEmpty {
@@ -68,8 +72,9 @@ struct StorageView: View {
                 ForEach(poller.latest?.userDisks ?? []) { disk in
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
-                            Text(disk.mount ?? disk.device ?? "—")
-                                .font(.system(size: 12, weight: .medium)).lineLimit(1)
+                            Text(volumeName(disk))
+                                .font(.system(size: 12, weight: .medium))
+                                .lineLimit(1).truncationMode(.middle)
                             if disk.external == true {
                                 Text("external").font(.system(size: 9)).foregroundStyle(.tertiary)
                             }
@@ -189,21 +194,27 @@ struct StorageView: View {
                     Text(Fmt.bytes(entry.size)).font(.system(size: 11, weight: .medium))
                 }
                 .width(84)
-                TableColumn("") { entry in
-                    HStack(spacing: 4) {
+                // Bordered rather than plain: as borderless text these ran
+                // together into an unreadable "Open Reveal Trash" with no
+                // indication they were three separate controls.
+                TableColumn("Actions") { entry in
+                    HStack(spacing: 6) {
                         if entry.isDir == true {
                             Button("Open") { if let p = entry.path { drillInto(p) } }
-                                .font(.system(size: 11))
+                                .help("Scan inside this folder")
                         }
                         Button("Reveal") {
                             if let p = entry.path { DiskAnalyzer.revealInFinder(p) }
                         }
-                        .font(.system(size: 11))
+                        .help("Show in Finder")
                         Button("Trash") { pendingTrash = entry }
-                            .font(.system(size: 11))
+                            .help("Move to Trash — recoverable")
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .font(.system(size: 11))
                 }
-                .width(156)
+                .width(190)
             }
             .frame(minHeight: 200)
 
@@ -216,6 +227,18 @@ struct StorageView: View {
         VStack(spacing: 6) { inner() }
             .frame(maxWidth: .infinity, minHeight: 200)
             .padding(.horizontal, 30)
+    }
+
+    /// Friendly volume label. A bare "/" tells the user nothing, and long mount
+    /// paths pushed the free-space figures off the row.
+    private func volumeName(_ disk: SystemStatus.Disk) -> String {
+        guard let mount = disk.mount else { return disk.device ?? "—" }
+        if mount == "/" {
+            let name = (try? URL(fileURLWithPath: "/")
+                .resourceValues(forKeys: [.volumeNameKey]).volumeName) ?? nil
+            return name.map { "\($0)  ·  /" } ?? "Startup disk  ·  /"
+        }
+        return (mount as NSString).lastPathComponent
     }
 
     private func isProtected(_ candidate: String) -> Bool {
