@@ -3,10 +3,9 @@ import IOKit
 
 /// Live GPU statistics read straight from the IOKit registry.
 ///
-/// This is deliberately **not** sourced from Mole: `mo status --json` reports
-/// `gpu[0].usage = -1` on Apple silicon (`note: "sppci_vendor_Apple"`), i.e. it
-/// has no reading to give. The numbers exist in the IOAccelerator service's
-/// `PerformanceStatistics` dictionary, so Vitality reads them itself.
+/// Apple exposes no public framework for GPU utilisation, and several tools
+/// that claim to report it return -1 on Apple silicon. The real numbers live in
+/// the IOAccelerator service's `PerformanceStatistics` dictionary.
 enum GPUMonitor {
 
     static func sample() -> GPUStats? {

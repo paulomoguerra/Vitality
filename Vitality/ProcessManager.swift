@@ -17,10 +17,10 @@ struct RunningProcess: Identifiable, Hashable {
 
 enum ProcessManager {
 
-    /// Mole's `status --json` returns only the top 5 processes, which is fine
-    /// for a glanceable summary but too thin to manage anything. Reading `ps`
-    /// directly gives the full table — and process control isn't something
-    /// Mole does at all, so there's nothing to defer to it here.
+    /// Reads `ps` rather than `libproc` because the per-process CPU percentage
+    /// `ps` reports is already the smoothed figure users recognise from
+    /// Activity Monitor; computing it from raw `proc_pidinfo` counters would
+    /// mean reimplementing that smoothing to get the same numbers.
     static func list(limit: Int = 60) -> [RunningProcess] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")

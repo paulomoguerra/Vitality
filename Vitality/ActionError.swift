@@ -1,8 +1,7 @@
 import Foundation
 
-/// A plain, user-facing failure message for actions Vitality performs itself
-/// (quitting a process, trashing a file) as opposed to failures coming back
-/// from Mole, which carry their own `MoleError`.
+/// A plain, user-facing failure message for actions Vitality performs on the
+/// user's behalf — quitting a process, measuring a folder, trashing a file.
 struct ActionError: LocalizedError, Equatable {
     let message: String
 

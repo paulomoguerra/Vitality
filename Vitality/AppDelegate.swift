@@ -38,11 +38,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.popover.performClose(nil)
         }
 
-        // Vitality is inert without Mole, and it has no Dock icon — so a first
-        // run with Mole missing would otherwise be a menu bar item quietly
-        // reporting an error the user has no way to act on.
-        // No setup step any more: Vitality measures everything itself, so it
-        // works the moment it launches with nothing to install first.
+        // No setup step: Vitality measures everything itself, so it works the
+        // moment it launches with nothing to install first.
         log.info("launch: native metrics, no external dependency")
     }
 
