@@ -41,6 +41,8 @@ Each reading reserves room for its widest possible value, so a Mac going from 9%
 
 **Widgets** — small, medium and large, in Notification Centre and on the desktop.
 
+**Buy me a coffee** — `Buy me a coffee…` in the popover shows a Lightning QR to scan, a one-tap copy of the address, and an `Open in wallet` handoff for desktop wallets. Entirely optional, never nagged about, and it costs nothing to ignore.
+
 ## Temperatures and power
 
 macOS publishes no API for die temperature or system wattage. `powermetrics` needs root, IOReport is a private framework, and IOKit's HID sensors are named things like `PMU tdie7` — real readings that cannot be attributed to the CPU or the GPU. So Vitality reads the SMC, which is the only source that names what it is measuring.
