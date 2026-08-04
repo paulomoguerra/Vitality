@@ -22,6 +22,11 @@ enum Fmt {
         return String(format: "%.1f W", value)
     }
 
+    static func celsius(_ value: Double?, decimals: Int = 0) -> String {
+        guard let value else { return "—" }
+        return String(format: "%.\(decimals)f°", value)
+    }
+
     static func load(_ value: Double?) -> String {
         guard let value else { return "—" }
         return String(format: "%.2f", value)

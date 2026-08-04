@@ -11,12 +11,14 @@ import IOKit.ps
 final class SystemMetrics {
 
     private var previousCPUTicks: [[UInt32]]?
+    private let thermalMonitor = ThermalMonitor()
 
     func collect() -> SystemStatus {
         let cpu = sampleCPU()
         let memory = sampleMemory()
         let disks = sampleDisks()
         let battery = sampleBattery()
+        let thermal = thermalMonitor.sample()
         let power = samplePower(battery: battery)
         let processes = ProcessManager.list(limit: 5).map {
             SystemStatus.TopProcess(pid: $0.pid, name: $0.name, cpu: $0.cpu, memoryBytes: $0.memoryBytes)
@@ -40,6 +42,7 @@ final class SystemMetrics {
             power: power,
             batteries: battery.map { [$0] } ?? [],
             topProcesses: processes,
+            thermal: thermal,
             collectedAt: Date()
         )
     }
@@ -255,12 +258,13 @@ final class SystemMetrics {
         return unmanaged?.takeRetainedValue() as? [String: Any]
     }
 
-    /// Reports adapter wattage on AC and actual battery draw on battery.
+    /// Total draw and adapter input from the SMC, plus the battery's own flow.
     ///
-    /// Total SoC package power (what `powermetrics` shows) needs IOReport or
-    /// SMC access, neither of which is public API — so Vitality reports the two
-    /// figures it can measure honestly instead of guessing at a single number.
+    /// The adapter *rating* and what it is actually delivering are different
+    /// numbers, and both are worth having: a 70W charger always reports 70W,
+    /// while `inputWatts` says whether 8W or 60W is crossing the cable.
     private func samplePower(battery: SystemStatus.Battery?) -> SystemStatus.Power {
+        let rails = thermalMonitor.power()
         let registry = smartBatteryProperties()
         let millivolts = registry?["Voltage"] as? Int ?? 0
         let milliamps = registry?["InstantAmperage"] as? Int
@@ -278,6 +282,8 @@ final class SystemMetrics {
         return SystemStatus.Power(
             adapterWatts: adapterWatts,
             batteryWatts: batteryWatts > 0 ? batteryWatts : nil,
+            systemWatts: rails.system,
+            inputWatts: rails.input,
             isCharging: (milliamps > 0) && adapterWatts != nil,
             isOnAC: battery?.status != "Battery"
         )

@@ -234,6 +234,90 @@ struct StorageDetailPane: View {
     }
 }
 
+// MARK: - Temperature
+
+struct ThermalDetailPane: View {
+    let status: SystemStatus?
+    let back: () -> Void
+    let openDashboard: () -> Void
+
+    var body: some View {
+        let thermal = status?.thermal
+
+        VStack(alignment: .leading, spacing: 0) {
+            PaneHeader(title: "Temperature", back: back)
+
+            if let thermal {
+                DetailLine(label: "CPU", value: Fmt.celsius(thermal.cpu, decimals: 1),
+                           tint: tint(thermal.cpu))
+                TemperatureBar(celsius: thermal.cpu)
+
+                DetailLine(label: "Performance cores",
+                           value: Fmt.celsius(thermal.performanceCores, decimals: 1))
+                DetailLine(label: "Efficiency cores",
+                           value: Fmt.celsius(thermal.efficiencyCores, decimals: 1))
+
+                Divider().padding(.vertical, 8)
+
+                DetailLine(label: "GPU", value: Fmt.celsius(thermal.gpu, decimals: 1),
+                           tint: tint(thermal.gpu))
+                TemperatureBar(celsius: thermal.gpu)
+
+                Divider().padding(.vertical, 8)
+
+                DetailLine(label: "Battery", value: Fmt.celsius(thermal.battery, decimals: 1))
+                DetailLine(label: "Storage", value: Fmt.celsius(thermal.storage, decimals: 1))
+                DetailLine(label: "Enclosure", value: Fmt.celsius(thermal.enclosure, decimals: 1))
+
+                if let hottest = thermal.hottest {
+                    Divider().padding(.vertical, 8)
+                    DetailLine(label: "Hottest sensor",
+                               value: Fmt.celsius(hottest.celsius, decimals: 1),
+                               tint: tint(hottest.celsius))
+                    Text("\(hottest.label) · \(hottest.key)")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 14)
+                }
+
+                Text("Cluster figures are the mean of every sensor in that cluster. Apple silicon idles near 50°C and only throttles above 100°C, so warm is normal.")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14).padding(.top, 8)
+
+                Divider().padding(.vertical, 8)
+                MenuActionRow(icon: "list.bullet.rectangle",
+                              label: "All \(thermal.sensors.count) sensors…", action: openDashboard)
+            } else {
+                Text("This Mac reports no temperature sensors.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 14).padding(.vertical, 6)
+            }
+        }
+        .padding(.bottom, 6)
+    }
+
+    private func tint(_ celsius: Double?) -> Color {
+        Severity.level(forTemperature: celsius)?.color ?? .primary
+    }
+}
+
+/// A usage bar scaled to a die's real range rather than 0–100%.
+///
+/// Reusing `MiniBar` would put a 50°C idle chip at the halfway mark and imply
+/// it is working hard. Anchoring at 30°C makes the bar track what actually
+/// changes.
+struct TemperatureBar: View {
+    let celsius: Double?
+
+    var body: some View {
+        MiniBar(percent: celsius.map { max(0, min(100, ($0 - 30) / 70 * 100)) })
+            .padding(.horizontal, 14).padding(.vertical, 5)
+    }
+}
+
 // MARK: - Power & battery
 
 struct PowerDetailPane: View {
@@ -247,8 +331,24 @@ struct PowerDetailPane: View {
         VStack(alignment: .leading, spacing: 0) {
             PaneHeader(title: "Power", back: back)
 
+            if let used = power?.systemWatts {
+                DetailLine(label: "Drawing now", value: Fmt.watts(used))
+            }
+            if let input = power?.inputWatts {
+                DetailLine(label: "Coming in", value: Fmt.watts(input))
+            }
+
+            // Input minus draw is what the battery and the conversion losses
+            // are taking. Naming it beats leaving the user to notice that two
+            // numbers they were just shown don't add up.
+            if let used = power?.systemWatts, let input = power?.inputWatts, input > used {
+                DetailLine(label: "To battery & losses", value: Fmt.watts(input - used))
+            }
+
+            if power?.systemWatts != nil { Divider().padding(.vertical, 8) }
+
             if let adapter = power?.adapterWatts, adapter > 0 {
-                DetailLine(label: "Adapter", value: Fmt.watts(adapter))
+                DetailLine(label: "Adapter rating", value: Fmt.watts(adapter))
             }
             if let draw = power?.batteryWatts, draw > 0 {
                 DetailLine(label: power?.isCharging == true ? "Charging at" : "Battery draw",

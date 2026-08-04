@@ -75,17 +75,54 @@ struct SystemStatus: Codable {
         }
     }
 
-    /// Power figures Vitality can measure honestly.
+    /// Power figures Vitality can measure.
     ///
-    /// Total SoC package draw — the single wattage `powermetrics` reports —
-    /// requires IOReport or SMC access, neither of which is public API. Rather
-    /// than invent one number, Vitality reports adapter wattage and actual
-    /// battery flow, which are both real and both measurable.
+    /// `systemWatts` and `inputWatts` come from the SMC's own rails — see
+    /// `SMC` for why that source is used and what it costs. `adapterWatts` is
+    /// the adapter's *rating* from IOKit, which is a different thing from what
+    /// it is actually delivering: a 70W charger reads 70W whether the Mac is
+    /// drawing 8W or 60W from it.
     struct Power: Codable {
+        /// What the adapter is rated for, not what it is supplying.
         let adapterWatts: Double?
         let batteryWatts: Double?
+        /// Everything the machine is consuming right now (SMC `PSTR`).
+        let systemWatts: Double?
+        /// What is actually coming in over the cable (SMC `PDTR`).
+        let inputWatts: Double?
         let isCharging: Bool?
         let isOnAC: Bool?
+    }
+
+    /// Die and component temperatures, in Celsius.
+    ///
+    /// Every field is optional: a Mac that exposes no sensors gets no thermal
+    /// section rather than a screen of dashes.
+    struct Thermal: Codable {
+        struct Sensor: Codable, Identifiable {
+            /// The raw SMC key, e.g. `Tp0f` — kept so a reading can always be
+            /// traced back to its source.
+            let key: String
+            let label: String
+            let celsius: Double
+            /// False when Vitality knows the reading is real but not what it
+            /// measures. Those are shown, and shown as unknown.
+            let isIdentified: Bool
+
+            var id: String { key }
+        }
+
+        /// Mean across every core sensor, performance and efficiency together.
+        let cpu: Double?
+        let performanceCores: Double?
+        let efficiencyCores: Double?
+        let gpu: Double?
+        let battery: Double?
+        let storage: Double?
+        let enclosure: Double?
+        /// The hottest named sensor on the machine.
+        let hottest: Sensor?
+        let sensors: [Sensor]
     }
 
     struct Battery: Codable {
@@ -120,6 +157,7 @@ struct SystemStatus: Codable {
     let power: Power?
     let batteries: [Battery]?
     let topProcesses: [TopProcess]?
+    let thermal: Thermal?
     let collectedAt: Date?
 
     // MARK: - Convenience
@@ -133,14 +171,18 @@ struct SystemStatus: Codable {
     var topProcess: TopProcess? { topProcesses?.first }
     var processes: [TopProcess] { topProcesses ?? [] }
 
-    /// The headline power figure: what the adapter is supplying when plugged in,
-    /// or what the battery is actually giving up when it isn't.
+    /// The headline power figure: what the machine is actually consuming.
+    ///
+    /// Falls back to the adapter rating / battery flow pair on a Mac whose SMC
+    /// gives nothing, which is worse but still true.
     var headlinePower: Double? {
+        if let systemWatts = power?.systemWatts { return systemWatts }
         if power?.isOnAC == true { return power?.adapterWatts ?? power?.batteryWatts }
         return power?.batteryWatts
     }
 
     var headlinePowerLabel: String {
-        power?.isOnAC == true ? "Adapter" : "Battery draw"
+        if power?.systemWatts != nil { return "Power draw" }
+        return power?.isOnAC == true ? "Adapter" : "Battery draw"
     }
 }

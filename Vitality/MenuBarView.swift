@@ -4,7 +4,7 @@ import SwiftUI
 /// because popovers size themselves to their content, and NavigationStack's
 /// animated push makes the window jump around while resizing.
 enum MenuPane: Hashable {
-    case root, cpu, gpu, memory, storage, power, processes, menuBar
+    case root, cpu, gpu, memory, storage, power, processes, menuBar, thermal
 }
 
 struct MenuBarView: View {
@@ -29,6 +29,8 @@ struct MenuBarView: View {
                                                   openDashboard: openDashboard)
             case .menuBar:    MenuBarSettingsPane(settings: settings, history: history,
                                                   status: poller.latest, back: goBack)
+            case .thermal:    ThermalDetailPane(status: poller.latest, back: goBack,
+                                                openDashboard: openDashboard)
             }
         }
         .frame(width: 288)
@@ -56,6 +58,13 @@ struct MenuBarView: View {
             MenuRow(icon: "cpu.fill", label: "GPU",
                     value: Fmt.percent(status.gpu?.utilization, decimals: 1),
                     action: { pane = .gpu })
+
+            if let thermal = status.thermal {
+                MenuRow(icon: "thermometer.medium", label: "Temperature",
+                        value: temperatureSummary(thermal),
+                        tint: Severity.level(forTemperature: thermal.cpu)?.color ?? .secondary,
+                        action: { pane = .thermal })
+            }
 
             MenuRow(icon: "memorychip", label: "Memory",
                     value: Fmt.percent(status.memory?.usedPercent, decimals: 1),
@@ -93,6 +102,15 @@ struct MenuBarView: View {
             Divider().padding(.vertical, 5)
             footer(status: nil)
         }
+    }
+
+    /// CPU is the number that actually moves, so it leads; the GPU rides along
+    /// because on Apple silicon they share a die and diverge more than people
+    /// expect under a graphics load.
+    private func temperatureSummary(_ thermal: SystemStatus.Thermal) -> String {
+        let cpu = Fmt.celsius(thermal.cpu)
+        guard let gpu = thermal.gpu else { return cpu }
+        return "\(cpu) CPU · \(Fmt.celsius(gpu)) GPU"
     }
 
     private func batteryIcon(_ battery: SystemStatus.Battery) -> String {

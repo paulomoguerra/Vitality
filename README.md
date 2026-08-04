@@ -2,40 +2,62 @@
 
 A native macOS menu bar app, dashboard, and Notification Centre widget that shows your Mac's vital signs at a glance — and lets you act on them.
 
-**No dependencies.** Vitality measures everything itself through public macOS APIs. Nothing to install first, nothing to configure.
+**No dependencies.** Vitality measures everything itself. Nothing to install first, nothing to configure.
+
+Almost all of it goes through documented macOS APIs. The exception is temperature and wattage, which have no public interface at all — see [Temperatures and power](#temperatures-and-power).
 
 ## What it does
 
-**Live figures in the menu bar** — pick which readings sit next to the Vitality icon and watch them update every second: CPU, GPU, memory, disk, power, battery, health. `Menu bar…` in the popover chooses them, with a live preview of the result.
+**Live figures in the menu bar** — pick which readings sit next to the Vitality icon and watch them update every second: CPU, CPU temperature, GPU, GPU temperature, memory, disk, power draw, power in, battery, health. `Menu bar…` in the popover chooses them, with a live preview of the result.
 
 | Option | What it does |
 |---|---|
-| Show | Which of the seven metrics appear, in a fixed order so the strip never reshuffles |
+| Show | Which of the ten metrics appear, in a fixed order so the strip never reshuffles |
 | Colour | `When it matters` (default — plain until a reading goes orange or red), `Always`, or `Never` |
-| Labels | The `CPU` / `GPU` / `RAM` tags before each number |
-| Graph | A 40-second sparkline on CPU, GPU, memory and power |
+| Labels | The `CPU` / `GPU°` / `RAM` tags before each number |
+| Graph | A 40-second sparkline on everything that moves — usage, temperatures and wattage |
 | Vitality icon | The gauge itself — and it stays put if you turn everything else off, so the app can't hide from you |
 
 Each reading reserves room for its widest possible value, so a Mac going from 9% to 100% never shoves the rest of your menu bar sideways.
 
-**Menu bar popover** — health score, CPU, GPU, memory, disk, power, battery, and top process. Every row with more to say is clickable:
+**Menu bar popover** — health score, CPU, GPU, temperature, memory, disk, power, battery, and top process. Every row with more to say is clickable:
 
 | Row | Opens |
 |---|---|
 | CPU | Per-core usage bars, chip, P/E core split, 1/5/15-minute load averages scaled to core count |
 | GPU | Live utilisation with renderer/tiler breakdown and memory in use |
+| Temperature | CPU (split by performance and efficiency cores), GPU, battery, storage, enclosure, and the hottest sensor on the machine |
 | Memory | In use / available / cached / total, plus swap — with a warning when your Mac is swapping heavily |
 | Disk | Every volume with free space |
-| Power / Battery | Adapter wattage, battery flow, plus battery health, max capacity and cycle count |
+| Power / Battery | What the Mac is drawing, what is coming in over the cable, what the difference is going to, plus battery health, max capacity and cycle count |
 | Top process | The heaviest processes with PID and memory |
 
-**Dashboard** (`Open Dashboard…`) — three tabs:
+**Dashboard** (`Open Dashboard…`) — four tabs:
 
 - **Overview** — health ring, machine summary, uptime, and the key metrics
 - **Processes** — the full process table, filterable and sortable by CPU, memory or name. Quit or Force Quit anything you own.
 - **Storage** — every volume, plus a size-sorted folder browser you can drill into. Reveal in Finder, or move items to the Trash.
+- **Sensors** — every temperature sensor the Mac reports, grouped by what it measures, with the raw SMC key beside each reading
 
 **Widgets** — small, medium and large, in Notification Centre and on the desktop.
+
+## Temperatures and power
+
+macOS publishes no API for die temperature or system wattage. `powermetrics` needs root, IOReport is a private framework, and IOKit's HID sensors are named things like `PMU tdie7` — real readings that cannot be attributed to the CPU or the GPU. So Vitality reads the SMC, which is the only source that names what it is measuring.
+
+That is a deliberate exception, kept as narrow as possible:
+
+- It uses **public IOKit calls** to talk to the `AppleSMC` driver. No private framework is linked and no symbol is resolved at runtime, so it cannot break by a missing symbol — only by Apple changing the driver's protocol, which shows up as no reading rather than a crash.
+- Every value is optional the whole way to the screen. A Mac that answers nothing shows no temperatures; it never shows an invented one.
+- No root, no entitlement, no helper tool. It does require the app to stay outside the sandbox — a sandboxed process cannot open `AppleSMC` at all.
+
+Two consequences worth knowing:
+
+**Cluster figures are means, not peaks.** Each core reports several sensors across the die and the hottest runs ~10°C above the rest even at idle, so a maximum would read alarmingly high all the time. The peak is still shown separately as the hottest sensor.
+
+**"Drawing now" and "Coming in" are different numbers on purpose.** `PSTR` is what the machine consumes; `PDTR` is what crosses the cable. The gap is conversion loss and whatever is going into the battery. The adapter's *rating* is a third number again — a 70W charger reports 70W whether the Mac is pulling 8W or 60W.
+
+Sensors Vitality can read but cannot name are still listed, under "Unidentified", rather than quietly dropped.
 
 ## Requirements
 

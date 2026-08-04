@@ -38,6 +38,17 @@ enum Severity {
         return .critical
     }
 
+    /// Apple silicon runs hot by design and only throttles around 100–110°C,
+    /// so the thresholds sit well above what a desktop PC would call alarming.
+    /// Flagging a perfectly normal 75°C M-series die would train the user to
+    /// ignore the colour entirely.
+    static func level(forTemperature celsius: Double?) -> Level? {
+        guard let celsius else { return nil }
+        if celsius >= 95 { return .critical }
+        if celsius >= 80 { return .warning }
+        return .normal
+    }
+
     /// Charge reads the other way round to everything else here: a *low*
     /// battery is the bad one, so it can't go through `forUsage`.
     static func level(forCharge percent: Double?) -> Level? {

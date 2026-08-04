@@ -4,6 +4,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
     case overview = "Overview"
     case processes = "Processes"
     case storage = "Storage"
+    case sensors = "Sensors"
 
     var id: String { rawValue }
 
@@ -12,6 +13,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case .overview:  return "gauge.medium"
         case .processes: return "list.bullet.rectangle"
         case .storage:   return "internaldrive"
+        case .sensors:   return "thermometer.medium"
         }
     }
 }
@@ -36,6 +38,11 @@ struct DashboardView: View {
                 .tabItem { Label(DashboardTab.storage.rawValue,
                                  systemImage: DashboardTab.storage.icon) }
                 .tag(DashboardTab.storage)
+
+            SensorsView(poller: poller)
+                .tabItem { Label(DashboardTab.sensors.rawValue,
+                                 systemImage: DashboardTab.sensors.icon) }
+                .tag(DashboardTab.sensors)
         }
         .padding(14)
         .frame(minWidth: 620, minHeight: 460)

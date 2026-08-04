@@ -7,20 +7,23 @@ import SwiftUI
 /// interaction that buys nothing, and a fixed order means the strip never
 /// ends up in a layout nobody chose.
 enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
-    case cpu, gpu, memory, disk, power, battery, health
+    case cpu, cpuTemp, gpu, gpuTemp, memory, disk, power, powerIn, battery, health
 
     var id: String { rawValue }
 
     /// Full name, for the settings list.
     var label: String {
         switch self {
-        case .cpu:     return "CPU"
-        case .gpu:     return "GPU"
-        case .memory:  return "Memory"
-        case .disk:    return "Disk"
-        case .power:   return "Power"
-        case .battery: return "Battery"
-        case .health:  return "Health"
+        case .cpu:      return "CPU"
+        case .cpuTemp:  return "CPU temperature"
+        case .gpu:      return "GPU"
+        case .gpuTemp:  return "GPU temperature"
+        case .memory:   return "Memory"
+        case .disk:     return "Disk"
+        case .power:    return "Power draw"
+        case .powerIn:  return "Power in"
+        case .battery:  return "Battery"
+        case .health:   return "Health"
         }
     }
 
@@ -29,13 +32,16 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
     /// tag at all is worse still. "CPU" is never ambiguous.
     var shortLabel: String {
         switch self {
-        case .cpu:     return "CPU"
-        case .gpu:     return "GPU"
-        case .memory:  return "RAM"
-        case .disk:    return "SSD"
-        case .power:   return "PWR"
-        case .battery: return "BAT"
-        case .health:  return "HLTH"
+        case .cpu:      return "CPU"
+        case .cpuTemp:  return "CPU°"
+        case .gpu:      return "GPU"
+        case .gpuTemp:  return "GPU°"
+        case .memory:   return "RAM"
+        case .disk:     return "SSD"
+        case .power:    return "PWR"
+        case .powerIn:  return "IN"
+        case .battery:  return "BAT"
+        case .health:   return "HLTH"
         }
     }
 
@@ -43,13 +49,16 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
     /// reads as the same object the user already clicks on the root pane.
     var icon: String {
         switch self {
-        case .cpu:     return "cpu"
-        case .gpu:     return "cpu.fill"
-        case .memory:  return "memorychip"
-        case .disk:    return "internaldrive"
-        case .power:   return "bolt.fill"
-        case .battery: return "battery.100"
-        case .health:  return "heart.fill"
+        case .cpu:      return "cpu"
+        case .cpuTemp:  return "thermometer.medium"
+        case .gpu:      return "cpu.fill"
+        case .gpuTemp:  return "thermometer.medium"
+        case .memory:   return "memorychip"
+        case .disk:     return "internaldrive"
+        case .power:    return "bolt.fill"
+        case .powerIn:  return "powerplug.fill"
+        case .battery:  return "battery.100"
+        case .health:   return "heart.fill"
         }
     }
 
@@ -58,9 +67,10 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
     /// reading crosses from 9% to 10%.
     var widestValue: String {
         switch self {
-        case .power:  return "88.8 W"
-        case .health: return "100"
-        default:      return "100%"
+        case .power, .powerIn:   return "88.8 W"
+        case .health:            return "100"
+        case .cpuTemp, .gpuTemp: return "100°"
+        default:                 return "100%"
         }
     }
 
@@ -71,8 +81,8 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
     /// for them would be decoration pretending to be information.
     var isGraphable: Bool {
         switch self {
-        case .cpu, .gpu, .memory, .power: return true
-        case .disk, .battery, .health:    return false
+        case .cpu, .gpu, .memory, .power, .powerIn, .cpuTemp, .gpuTemp: return true
+        case .disk, .battery, .health:                                  return false
         }
     }
 
@@ -112,10 +122,17 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
 
         case .power:
             let watts = status?.headlinePower
-            return Reading(text: Fmt.watts(watts),
-                           sample: watts,
-                           scale: .relative,
-                           level: nil)
+            return Reading(text: Fmt.watts(watts), sample: watts, scale: .relative, level: nil)
+
+        case .powerIn:
+            let watts = status?.power?.inputWatts
+            return Reading(text: Fmt.watts(watts), sample: watts, scale: .relative, level: nil)
+
+        case .cpuTemp:
+            return temperature(status?.thermal?.cpu)
+
+        case .gpuTemp:
+            return temperature(status?.thermal?.gpu)
 
         case .health:
             let score = status?.healthScore
@@ -124,6 +141,16 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
                            scale: .percent,
                            level: Severity.level(forHealth: score))
         }
+    }
+
+    /// Temperature rides the `.percent` scale deliberately: it is not a
+    /// percentage, but a fixed 0–100 ceiling is the right axis for a die that
+    /// idles near 50°C and throttles above 100°C.
+    private func temperature(_ value: Double?) -> Reading {
+        Reading(text: Fmt.celsius(value),
+                sample: value,
+                scale: .percent,
+                level: Severity.level(forTemperature: value))
     }
 
     private func usage(_ value: Double?) -> Reading {
