@@ -1,16 +1,23 @@
 import AppKit
 import SwiftUI
 
+private enum StorageMode: String, CaseIterable, Identifiable {
+    case volumes = "Volumes"
+    case duplicates = "Duplicates"
+
+    var id: String { rawValue }
+}
+
 struct StorageView: View {
     @ObservedObject var poller: StatusPoller
 
+    @State private var mode: StorageMode = .volumes
     @State private var root: String = DiskAnalyzer.suggestedRoots.first?.path ?? ""
     @State private var path: String = ""
     @State private var entries: [DiskEntry] = []
     @State private var breadcrumb: [String] = []
     @State private var isAnalyzing = false
     @State private var analyzeError: String?
-    @State private var didAutoScan = false
     @State private var pendingTrash: DiskEntry?
     @State private var actionError: String?
 
@@ -22,9 +29,21 @@ struct StorageView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            volumes
-            Divider()
-            browser
+            Picker("Storage", selection: $mode) {
+                ForEach(StorageMode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 300)
+
+            if mode == .volumes {
+                volumes
+                Divider()
+                browser
+            } else {
+                DuplicateFilesView()
+            }
         }
         .confirmationDialog(
             pendingTrash.map { "Move “\($0.name)” to Trash?" } ?? "Move to Trash?",
@@ -127,13 +146,6 @@ struct StorageView: View {
             }
 
             content
-        }
-        .onAppear {
-            // Guarded by a flag rather than `entries.isEmpty`, or every tab
-            // switch would kick off another full scan.
-            guard !didAutoScan else { return }
-            didAutoScan = true
-            analyze(root, resetBreadcrumb: true)
         }
     }
 

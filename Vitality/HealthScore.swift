@@ -13,7 +13,7 @@ import Foundation
 enum HealthScore {
 
     struct Result {
-        let score: Int
+        let score: Int?
         let message: String
     }
 
@@ -26,6 +26,17 @@ enum HealthScore {
                          memory: SystemStatus.Memory?,
                          disk: SystemStatus.Disk?,
                          battery: SystemStatus.Battery?) -> Result {
+        // A score without the three primary signals is not a measurement —
+        // it is just the absence of deductions, which would misleadingly
+        // render as 100/Excellent. Battery is deliberately not required:
+        // desktop Macs do not expose one.
+        guard cpu?.usage != nil,
+              memory?.swapUsed != nil,
+              memory?.swapTotal != nil,
+              disk?.usedPercent != nil else {
+            return Result(score: nil, message: "Limited data")
+        }
+
         var deductions: [Deduction] = []
 
         if let used = disk?.usedPercent {

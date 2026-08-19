@@ -1,7 +1,5 @@
 import Darwin
 import Foundation
-import IOKit
-import IOKit.ps
 
 /// Collects every system metric Vitality shows, using only public macOS APIs.
 ///
@@ -10,29 +8,53 @@ import IOKit.ps
 /// nothing. The previous sample has to be kept between polls.
 final class SystemMetrics {
 
+    private struct TimedCache<Value> {
+        let sampledAt: Date
+        let value: Value
+    }
+
+    private enum CacheInterval {
+        /// Volumes and their resource values are stable enough for a short
+        /// cache, while still noticing mounts and meaningful free-space changes.
+        static let disks: TimeInterval = 15
+        /// Battery percentage and health do not change meaningfully every second.
+        static let battery: TimeInterval = 15
+        /// `ps` starts a child process, so keep the top-process view responsive
+        /// without paying that cost on every live CPU sample.
+        static let processes: TimeInterval = 3
+    }
+
     private var previousCPUTicks: [[UInt32]]?
     private let thermalMonitor = ThermalMonitor()
+    private let hardwareProvider = HardwareMetricsProvider()
+    private let volumeProvider = VolumeMetricsProvider()
+    private let batteryProvider = BatteryMetricsProvider()
+    private let processProvider = ProcessMetricsProvider()
+    private var diskCache: TimedCache<[SystemStatus.Disk]>?
+    private var batteryCache: TimedCache<BatteryMetricsProvider.Snapshot>?
+    private var processCache: TimedCache<ProcessMetricsProvider.Snapshot>?
+    private lazy var hardware = hardwareProvider.sample()
 
     func collect() -> SystemStatus {
+        let now = Date()
         let cpu = sampleCPU()
         let memory = sampleMemory()
-        let disks = sampleDisks()
-        let battery = sampleBattery()
+        let disks = sampleDisks(now: now)
+        let batterySnapshot = sampleBattery(now: now)
         let thermal = thermalMonitor.sample()
-        let power = samplePower(battery: battery)
-        let processes = ProcessManager.list(limit: 5).map {
-            SystemStatus.TopProcess(pid: $0.pid, name: $0.name, cpu: $0.cpu, memoryBytes: $0.memoryBytes)
-        }
+        let power = samplePower(battery: batterySnapshot.battery,
+                                registry: batterySnapshot.registry)
+        let processes = sampleProcesses(now: now)
 
         let health = HealthScore.evaluate(cpu: cpu, memory: memory,
                                           disk: disks.first(where: { $0.mount == "/" }) ?? disks.first,
-                                          battery: battery)
+                                          battery: batterySnapshot.battery)
 
         return SystemStatus(
-            host: Host.current().localizedName ?? ProcessInfo.processInfo.hostName,
+            host: hardware.hostName,
             uptime: formattedUptime(),
-            procs: processCount(),
-            hardware: sampleHardware(),
+            procs: processes.count,
+            hardware: hardware.hardware,
             healthScore: health.score,
             healthScoreMsg: health.message,
             cpu: cpu,
@@ -40,8 +62,8 @@ final class SystemMetrics {
             memory: memory,
             disks: disks,
             power: power,
-            batteries: battery.map { [$0] } ?? [],
-            topProcesses: processes,
+            batteries: batterySnapshot.battery.map { [$0] } ?? [],
+            topProcesses: processes.top,
             thermal: thermal,
             collectedAt: Date()
         )
@@ -54,14 +76,15 @@ final class SystemMetrics {
         getloadavg(&loads, 3)
 
         let (overall, perCore) = sampleCPUTicks()
+        let topology = hardware.cpu
 
         return SystemStatus.CPU(
             usage: overall,
             perCore: perCore,
             load1: loads[0], load5: loads[1], load15: loads[2],
-            coreCount: sysctlInt("hw.logicalcpu"),
-            pCoreCount: sysctlInt("hw.perflevel0.logicalcpu"),
-            eCoreCount: sysctlInt("hw.perflevel1.logicalcpu")
+            coreCount: topology.coreCount,
+            pCoreCount: topology.pCoreCount,
+            eCoreCount: topology.eCoreCount
         )
     }
 
@@ -131,7 +154,7 @@ final class SystemMetrics {
             }
         }
 
-        let total = Int64(sysctlUInt64("hw.memsize") ?? 0)
+        let total = hardware.totalMemoryBytes
         guard result == KERN_SUCCESS else {
             return SystemStatus.Memory(used: nil, total: total, available: nil,
                                        usedPercent: nil, swapUsed: nil, swapTotal: nil,
@@ -164,98 +187,29 @@ final class SystemMetrics {
 
     // MARK: - Disks
 
-    private func sampleDisks() -> [SystemStatus.Disk] {
-        let keys: [URLResourceKey] = [
-            .volumeNameKey, .volumeTotalCapacityKey, .volumeAvailableCapacityKey,
-            .volumeIsInternalKey, .volumeIsRemovableKey, .volumeIsBrowsableKey,
-        ]
-        guard let volumes = FileManager.default.mountedVolumeURLs(
-            includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]
-        ) else { return [] }
-
-        return volumes.compactMap { url -> SystemStatus.Disk? in
-            guard let values = try? url.resourceValues(forKeys: Set(keys)),
-                  let total = values.volumeTotalCapacity, total > 0
-            else { return nil }
-
-            // Xcode's simulator runtimes mount as browsable volumes and are
-            // permanently near-full. They're Xcode's business, not the user's.
-            if url.path.contains("/CoreSimulator/Volumes/") { return nil }
-
-            let available = Int64(values.volumeAvailableCapacity ?? 0)
-            let capacity = Int64(total)
-            let used = max(0, capacity - available)
-
-            return SystemStatus.Disk(
-                mount: url.path,
-                name: values.volumeName,
-                used: used,
-                total: capacity,
-                usedPercent: Double(used) / Double(capacity) * 100,
-                isInternal: values.volumeIsInternal ?? true,
-                isRemovable: values.volumeIsRemovable ?? false
-            )
+    private func sampleDisks(now: Date) -> [SystemStatus.Disk] {
+        if let cache = diskCache,
+           now.timeIntervalSince(cache.sampledAt) < CacheInterval.disks {
+            return cache.value
         }
-        .sorted { ($0.mount == "/" ? 0 : 1) < ($1.mount == "/" ? 0 : 1) }
+
+        let disks = volumeProvider.sample()
+
+        diskCache = TimedCache(sampledAt: now, value: disks)
+        return disks
     }
 
     // MARK: - Battery & power
 
-    private func sampleBattery() -> SystemStatus.Battery? {
-        guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-              let sources = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef]
-        else { return nil }
-
-        for source in sources {
-            guard let description = IOPSGetPowerSourceDescription(blob, source)?
-                .takeUnretainedValue() as? [String: Any] else { continue }
-
-            let current = description[kIOPSCurrentCapacityKey] as? Int
-            let max = description[kIOPSMaxCapacityKey] as? Int
-            let charging = description[kIOPSIsChargingKey] as? Bool ?? false
-            let onAC = (description[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
-
-            let minutes = description[kIOPSTimeToEmptyKey] as? Int ?? -1
-            let timeLeft = (!onAC && minutes > 0) ? "\(minutes / 60)h \(minutes % 60)m" : nil
-
-            let registry = smartBatteryProperties()
-            // These live inside a nested "BatteryData" dictionary. The
-            // top-level "MaxCapacity" is a normalised figure that reads 100 on
-            // modern macOS regardless of wear, so it's useless as a health
-            // signal.
-            let batteryData = registry?["BatteryData"] as? [String: Any]
-            let designCapacity = batteryData?["DesignCapacity"] as? Int
-            let nominalCapacity = batteryData?["NominalChargeCapacity"] as? Int
-            let healthPercent: Int? = {
-                guard let designCapacity, let nominalCapacity, designCapacity > 0 else { return nil }
-                return Int((Double(nominalCapacity) / Double(designCapacity) * 100).rounded())
-            }()
-
-            return SystemStatus.Battery(
-                percent: (current != nil && max != nil && max! > 0)
-                    ? Int((Double(current!) / Double(max!) * 100).rounded()) : current,
-                status: onAC ? (charging ? "Charging" : "AC") : "Battery",
-                timeLeft: timeLeft,
-                health: description[kIOPSBatteryHealthKey] as? String,
-                cycleCount: registry?["CycleCount"] as? Int,
-                capacity: healthPercent
-            )
+    private func sampleBattery(now: Date) -> BatteryMetricsProvider.Snapshot {
+        if let cache = batteryCache,
+           now.timeIntervalSince(cache.sampledAt) < CacheInterval.battery {
+            return cache.value
         }
-        return nil
-    }
 
-    /// Cycle count and design capacity aren't exposed through IOPowerSources —
-    /// they only live on the raw AppleSmartBattery registry node.
-    private func smartBatteryProperties() -> [String: Any]? {
-        let service = IOServiceGetMatchingService(kIOMainPortDefault,
-                                                  IOServiceMatching("AppleSmartBattery"))
-        guard service != 0 else { return nil }
-        defer { IOObjectRelease(service) }
-
-        var unmanaged: Unmanaged<CFMutableDictionary>?
-        guard IORegistryEntryCreateCFProperties(service, &unmanaged, kCFAllocatorDefault, 0) == KERN_SUCCESS
-        else { return nil }
-        return unmanaged?.takeRetainedValue() as? [String: Any]
+        let snapshot = batteryProvider.sample()
+        batteryCache = TimedCache(sampledAt: now, value: snapshot)
+        return snapshot
     }
 
     /// Total draw and adapter input from the SMC, plus the battery's own flow.
@@ -263,67 +217,14 @@ final class SystemMetrics {
     /// The adapter *rating* and what it is actually delivering are different
     /// numbers, and both are worth having: a 70W charger always reports 70W,
     /// while `inputWatts` says whether 8W or 60W is crossing the cable.
-    private func samplePower(battery: SystemStatus.Battery?) -> SystemStatus.Power {
-        let rails = thermalMonitor.power()
-        let registry = smartBatteryProperties()
-        let millivolts = registry?["Voltage"] as? Int ?? 0
-        let milliamps = registry?["InstantAmperage"] as? Int
-            ?? registry?["Amperage"] as? Int ?? 0
-
-        // Amperage is signed: negative while discharging.
-        let batteryWatts = abs(Double(millivolts) * Double(milliamps)) / 1_000_000
-
-        var adapterWatts: Double?
-        if let adapter = registry?["AdapterDetails"] as? [String: Any],
-           let watts = adapter["Watts"] as? Int, watts > 0 {
-            adapterWatts = Double(watts)
-        }
-
-        return SystemStatus.Power(
-            adapterWatts: adapterWatts,
-            batteryWatts: batteryWatts > 0 ? batteryWatts : nil,
-            systemWatts: rails.system,
-            inputWatts: rails.input,
-            isCharging: (milliamps > 0) && adapterWatts != nil,
-            isOnAC: battery?.status != "Battery"
-        )
+    private func samplePower(battery: SystemStatus.Battery?,
+                             registry: [String: Any]?) -> SystemStatus.Power {
+        batteryProvider.power(battery: battery,
+                              registry: registry,
+                              rails: thermalMonitor.power())
     }
 
-    // MARK: - Hardware & misc
-
-    private func sampleHardware() -> SystemStatus.Hardware {
-        let os = ProcessInfo.processInfo.operatingSystemVersion
-        return SystemStatus.Hardware(
-            model: marketingModelName(),
-            chip: sysctlString("machdep.cpu.brand_string"),
-            totalRAM: sysctlUInt64("hw.memsize").map { Int64($0) },
-            osVersion: "macOS \(os.majorVersion).\(os.minorVersion)"
-        )
-    }
-
-    /// `hw.model` gives identifiers like "Mac16,12".
-    ///
-    /// The human-readable name lives on the device tree's `/product` node —
-    /// **not** on `IOPlatformExpertDevice`, which only carries the identifier.
-    /// The full value is like "MacBook Air (13-inch, M4, 2025)"; the trailing
-    /// parenthetical is dropped because the chip and RAM are shown alongside it
-    /// anyway, and the long form truncates badly in the widget.
-    private func marketingModelName() -> String? {
-        let entry = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/product")
-        guard entry != 0 else { return sysctlString("hw.model") }
-        defer { IOObjectRelease(entry) }
-
-        if let data = IORegistryEntryCreateCFProperty(
-            entry, "product-name" as CFString, kCFAllocatorDefault, 0
-        )?.takeRetainedValue() as? Data {
-            let full = String(decoding: data, as: UTF8.self)
-                .trimmingCharacters(in: CharacterSet(charactersIn: "\0"))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let short = full.components(separatedBy: " (").first ?? full
-            if !short.isEmpty { return short }
-        }
-        return sysctlString("hw.model")
-    }
+    // MARK: - Misc
 
     private func formattedUptime() -> String {
         var boot = timeval()
@@ -340,34 +241,14 @@ final class SystemMetrics {
         return "\(minutes)m"
     }
 
-    private func processCount() -> Int? {
-        var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
-        var size = 0
-        guard sysctl(&name, 4, nil, &size, nil, 0) == 0 else { return nil }
-        return size / MemoryLayout<kinfo_proc>.stride
-    }
+    private func sampleProcesses(now: Date) -> ProcessMetricsProvider.Snapshot {
+        if let cache = processCache,
+           now.timeIntervalSince(cache.sampledAt) < CacheInterval.processes {
+            return cache.value
+        }
 
-    // MARK: - sysctl helpers
-
-    private func sysctlInt(_ name: String) -> Int? {
-        var value: Int32 = 0
-        var size = MemoryLayout<Int32>.size
-        guard sysctlbyname(name, &value, &size, nil, 0) == 0 else { return nil }
-        return Int(value)
-    }
-
-    private func sysctlUInt64(_ name: String) -> UInt64? {
-        var value: UInt64 = 0
-        var size = MemoryLayout<UInt64>.size
-        guard sysctlbyname(name, &value, &size, nil, 0) == 0 else { return nil }
-        return value
-    }
-
-    private func sysctlString(_ name: String) -> String? {
-        var size = 0
-        guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
-        var buffer = [CChar](repeating: 0, count: size)
-        guard sysctlbyname(name, &buffer, &size, nil, 0) == 0 else { return nil }
-        return String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
+        let snapshot = processProvider.sample()
+        processCache = TimedCache(sampledAt: now, value: snapshot)
+        return snapshot
     }
 }

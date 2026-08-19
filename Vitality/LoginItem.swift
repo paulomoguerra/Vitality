@@ -2,13 +2,23 @@ import Foundation
 import ServiceManagement
 
 enum LoginItem {
-    static func register() {
+    static func apply(enabled: Bool) {
+        let service = SMAppService.mainApp
+
         do {
-            if SMAppService.mainApp.status != .enabled {
-                try SMAppService.mainApp.register()
+            switch (enabled, service.status) {
+            case (true, .notRegistered):
+                try service.register()
+            case (false, .enabled):
+                try service.unregister()
+            default:
+                // An enabled item is already configured. Likewise, do not
+                // retry a pending approval on every app launch.
+                break
             }
         } catch {
-            NSLog("Vitality: failed to register login item: \(error)")
+            let action = enabled ? "enable" : "disable"
+            NSLog("Vitality: failed to \(action) login item: \(error)")
         }
     }
 }

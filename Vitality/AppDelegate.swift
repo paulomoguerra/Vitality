@@ -1,4 +1,5 @@
 import Cocoa
+import Combine
 import OSLog
 import SwiftUI
 
@@ -12,14 +13,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var poller: StatusPoller!
     private var dashboard: DashboardWindowController!
     private var eventMonitor: Any?
+    private var launchAtLoginObservation: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        LoginItem.register()
+        settings = MenuBarSettings()
+        launchAtLoginObservation = settings.$launchAtLogin
+            .dropFirst()
+            .sink { enabled in
+                LoginItem.apply(enabled: enabled)
+            }
+        LoginItem.apply(enabled: settings.launchAtLogin)
 
         poller = StatusPoller()
         dashboard = DashboardWindowController(poller: poller)
 
-        settings = MenuBarSettings()
         history = MenuBarHistory(poller: poller)
         menuBar = MenuBarStatusItemController(poller: poller, settings: settings, history: history)
         if let button = menuBar.button {

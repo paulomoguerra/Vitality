@@ -16,7 +16,7 @@ enum MenuBarColorMode: String, CaseIterable, Identifiable {
     }
 }
 
-/// Menu bar preferences, persisted in `UserDefaults`.
+/// Menu bar and startup preferences, persisted in `UserDefaults`.
 ///
 /// Deliberately not `@AppStorage`: the metric selection is a set, `@AppStorage`
 /// only speaks the property-list primitives, and scattering seven booleans
@@ -31,6 +31,7 @@ final class MenuBarSettings: ObservableObject {
         static let colorMode = "menuBar.colorMode"
         static let showsGraph = "menuBar.showsGraph"
         static let showsAppIcon = "menuBar.showsAppIcon"
+        static let launchAtLogin = "menuBar.launchAtLogin"
     }
 
     @Published var metrics: Set<MenuBarMetric> { didSet { save() } }
@@ -38,6 +39,9 @@ final class MenuBarSettings: ObservableObject {
     @Published var colorMode: MenuBarColorMode { didSet { save() } }
     @Published var showsGraph: Bool { didSet { save() } }
     @Published var showsAppIcon: Bool { didSet { save() } }
+    /// Defaults to the previous first-launch behaviour; a false value is
+    /// persisted so an explicit opt-out is not undone on the next launch.
+    @Published var launchAtLogin: Bool { didSet { save() } }
 
     private let defaults: UserDefaults
 
@@ -57,6 +61,7 @@ final class MenuBarSettings: ObservableObject {
             .flatMap(MenuBarColorMode.init(rawValue:)) ?? .warnings
         showsGraph = defaults.object(forKey: Key.showsGraph) as? Bool ?? false
         showsAppIcon = defaults.object(forKey: Key.showsAppIcon) as? Bool ?? true
+        launchAtLogin = defaults.object(forKey: Key.launchAtLogin) as? Bool ?? true
     }
 
     /// Selected metrics in canonical order.
@@ -97,5 +102,6 @@ final class MenuBarSettings: ObservableObject {
         defaults.set(colorMode.rawValue, forKey: Key.colorMode)
         defaults.set(showsGraph, forKey: Key.showsGraph)
         defaults.set(showsAppIcon, forKey: Key.showsAppIcon)
+        defaults.set(launchAtLogin, forKey: Key.launchAtLogin)
     }
 }
