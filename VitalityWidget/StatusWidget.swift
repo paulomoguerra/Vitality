@@ -1,17 +1,36 @@
 import WidgetKit
 import SwiftUI
 
+private enum WidgetDataFreshness {
+    /// The app writes snapshots roughly every 30 seconds. Five minutes gives
+    /// that cadence room for brief pauses while still surfacing an interrupted
+    /// collector instead of presenting old metrics as current.
+    static let staleAfter: TimeInterval = 5 * 60
+
+    static func isStale(_ status: SystemStatus?, now: Date = Date()) -> Bool {
+        guard let status else { return false }
+        // A snapshot without a collection timestamp cannot prove freshness.
+        // Keep showing its metrics, but label them stale rather than guessing.
+        guard let collectedAt = status.collectedAt else { return true }
+        return now.timeIntervalSince(collectedAt) >= staleAfter
+    }
+}
+
 struct StatusEntry: TimelineEntry {
     let date: Date
     let status: SystemStatus?
     /// Set when the shared container has no readable status yet, so the widget
     /// can say why it's empty instead of showing a wall of zeros.
     let isMissingData: Bool
+    let isStale: Bool
 
-    init(date: Date, status: SystemStatus?) {
+    /// `date` is WidgetKit's timeline-entry date, not the collection time.
+    /// Freshness is evaluated against `SystemStatus.collectedAt` instead.
+    init(date: Date, status: SystemStatus?, evaluatedAt: Date = Date()) {
         self.date = date
         self.status = status
         self.isMissingData = (status == nil)
+        self.isStale = WidgetDataFreshness.isStale(status, now: evaluatedAt)
     }
 }
 

@@ -58,6 +58,11 @@ struct MenuBarSettingsPane: View {
                     .padding(.horizontal, 14)
                     .padding(.top, 6)
             }
+
+            Divider().padding(.vertical, 8)
+
+            sectionLabel("Startup")
+            toggleRow("Launch at login", isOn: $settings.launchAtLogin)
         }
         .padding(.bottom, 6)
     }

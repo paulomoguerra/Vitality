@@ -10,9 +10,9 @@ struct StatusWidgetView: View {
             MissingDataView()
         } else {
             switch family {
-            case .systemSmall:  SmallStatusView(status: entry.status)
-            case .systemMedium: MediumStatusView(status: entry.status)
-            default:            LargeStatusView(status: entry.status)
+            case .systemSmall:  SmallStatusView(status: entry.status, isStale: entry.isStale)
+            case .systemMedium: MediumStatusView(status: entry.status, isStale: entry.isStale)
+            default:            LargeStatusView(status: entry.status, isStale: entry.isStale)
             }
         }
     }
@@ -38,8 +38,37 @@ struct MissingDataView: View {
     }
 }
 
+struct StatusFreshnessView: View {
+    let collectedAt: Date?
+    let isStale: Bool
+
+    init(status: SystemStatus?, isStale: Bool) {
+        self.collectedAt = status?.collectedAt
+        self.isStale = isStale
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(isStale ? Color.orange : Color.green)
+                .frame(width: 5, height: 5)
+            Text(message)
+                .font(.system(size: 9, weight: isStale ? .medium : .regular))
+                .foregroundStyle(isStale ? Color.orange : Color.secondary)
+                .lineLimit(1)
+        }
+    }
+
+    private var message: String {
+        guard collectedAt != nil else { return "Stale · collection time unavailable" }
+        let relativeTime = Fmt.relativeTime(from: collectedAt)
+        return isStale ? "Stale · collected \(relativeTime)" : "Collected \(relativeTime)"
+    }
+}
+
 struct SmallStatusView: View {
     let status: SystemStatus?
+    let isStale: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -49,6 +78,7 @@ struct SmallStatusView: View {
                 Image(systemName: "gauge.medium")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
+            StatusFreshnessView(status: status, isStale: isStale)
             Spacer()
             HStack(spacing: 10) {
                 HealthRing(score: status?.healthScore)
@@ -81,6 +111,7 @@ struct SmallStatusView: View {
 
 struct MediumStatusView: View {
     let status: SystemStatus?
+    let isStale: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -115,6 +146,8 @@ struct MediumStatusView: View {
             }
             .font(.system(size: 10))
             .foregroundStyle(.secondary)
+
+            StatusFreshnessView(status: status, isStale: isStale)
         }
         .padding(14)
     }
@@ -133,6 +166,7 @@ struct MediumStatusView: View {
 
 struct LargeStatusView: View {
     let status: SystemStatus?
+    let isStale: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -159,6 +193,8 @@ struct LargeStatusView: View {
                 }
                 Spacer(minLength: 0)
             }
+
+            StatusFreshnessView(status: status, isStale: isStale)
 
             // `alignment: .leading` is load-bearing: GridItem centres cell
             // content by default. The four bar metrics fill their cell so they

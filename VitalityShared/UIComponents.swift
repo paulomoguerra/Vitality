@@ -27,14 +27,15 @@ enum Severity {
         return .normal
     }
 
-    /// Thresholds match the grades in `HealthScore`: 90+ "Excellent",
-    /// 75–89 "Good", 55–74 "Fair". Keep them in step — a green cutoff that
-    /// disagrees with the wording puts an alarmist orange ring next to the
-    /// word "Good", the UI contradicting its own label.
+    /// HealthScore has five textual grades but Severity has three colours:
+    /// green covers Excellent/Good (75+), orange covers Fair (55–74), and
+    /// red covers Poor/Critical (below 55). This keeps the visual warning
+    /// level consistent with the grade boundaries without inventing extra
+    /// severity cases for the shared UI.
     static func level(forHealth score: Int?) -> Level? {
         guard let score else { return nil }
-        if score >= 70 { return .normal }
-        if score >= 40 { return .warning }
+        if score >= 75 { return .normal }
+        if score >= 55 { return .warning }
         return .critical
     }
 

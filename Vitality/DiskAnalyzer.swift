@@ -92,9 +92,9 @@ enum DiskAnalyzer {
         guard let enumerator = FileManager.default.enumerator(
             at: url,
             includingPropertiesForKeys: keys,
-            // Bundles are shown as single items in Finder, so their innards
-            // shouldn't be walked separately — but they must still be counted.
-            options: [.skipsPackageDescendants]
+            // Treat packages as ordinary directories so .app, .bundle, and
+            // .xcodeproj contents contribute to the enclosing entry's size.
+            options: []
         ) else { return 0 }
 
         var total: Int64 = 0

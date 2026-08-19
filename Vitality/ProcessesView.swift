@@ -101,14 +101,16 @@ struct ProcessesView: View {
 
     private func reload() {
         Task.detached(priority: .utility) {
-            let list = ProcessManager.list()
+            // The dashboard intentionally shows the complete process table.
+            // Compact top-N consumers must pass an explicit limit instead.
+            let list = ProcessManager.listAll()
             await MainActor.run { processes = list }
         }
     }
 
     private func quit(_ process: RunningProcess, force: Bool) {
         pendingQuit = nil
-        if case .failure(let error) = ProcessManager.terminate(pid: process.pid, force: force) {
+        if case .failure(let error) = ProcessManager.terminate(process, force: force) {
             errorMessage = error.message
         }
         // Give the process a moment to actually exit before redrawing the table.

@@ -6,13 +6,34 @@ import WidgetKit
 ///
 /// `SystemMetrics` keeps the previous CPU tick sample between calls, so two
 /// concurrent collections would corrupt each other's deltas and produce
-/// nonsense percentages. A dedicated serial queue makes that impossible.
+/// nonsense percentages. A dedicated serial queue makes that impossible. The
+/// busy guard also rejects timer ticks while a slow collection is in progress,
+/// rather than letting them form a backlog.
 private final class MetricsEngine: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.paulomateus.vitality.metrics", qos: .utility)
     private let metrics = SystemMetrics()
+    private let stateLock = NSLock()
+    private var isCollecting = false
 
-    func collect(_ completion: @escaping (SystemStatus) -> Void) {
-        queue.async { completion(self.metrics.collect()) }
+    @discardableResult
+    func collect(_ completion: @escaping (SystemStatus) -> Void) -> Bool {
+        stateLock.lock()
+        guard !isCollecting else {
+            stateLock.unlock()
+            return false
+        }
+        isCollecting = true
+        stateLock.unlock()
+
+        queue.async { [self] in
+            defer {
+                stateLock.lock()
+                isCollecting = false
+                stateLock.unlock()
+            }
+            completion(metrics.collect())
+        }
+        return true
     }
 }
 
@@ -30,9 +51,9 @@ final class StatusPoller: ObservableObject {
     /// poll would get Vitality throttled and refresh the widgets *less* often.
     private let widgetReloadInterval: TimeInterval = 30
 
-    /// Collection is now pure in-process sysctl/Mach/IOKit calls costing under a
-    /// millisecond, so this can be genuinely live. The old 3-second floor
-    /// existed only because shelling out to a bash script was expensive.
+    /// Keep a one-second cadence for live CPU and memory readings. SystemMetrics
+    /// caches slower snapshots internally, and MetricsEngine skips a tick if a
+    /// previous collection has not finished yet.
     init(interval: TimeInterval = 1) {
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
