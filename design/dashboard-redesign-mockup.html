@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vitality — mockup do redesign do dashboard</title>
+<style>
+  /* Paleta: instância de referência do método dataviz, modo dark, validada
+     (validate_palette.js: 4 slots categóricos PASS em #1a1a19). */
+  :root {
+    color-scheme: dark;
+    --page:        #0d0d0d;
+    --window:      #1a1a19;
+    --card:        #222220;
+    --ink:         #ffffff;
+    --ink-2:       #c3c2b7;
+    --ink-3:       #898781;
+    --grid:        #2c2c2a;
+    --hairline:    rgba(255,255,255,0.10);
+    --s-cpu:       #3987e5;  /* slot 1 azul   */
+    --s-gpu:       #d95926;  /* slot 2 laranja*/
+    --s-ram:       #199e70;  /* slot 3 água   */
+    --s-disk:      #c98500;  /* slot 4 amarelo*/
+    --st-good:     #0ca30c;
+    --st-warn:     #fab219;
+    --st-serious:  #ec835a;
+    --st-crit:     #d03b3b;
+    --accent:      #3987e5;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: radial-gradient(1200px 700px at 30% 0%, #1d2733 0%, var(--page) 55%);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--ink);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 40px 20px 60px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .caption { color: var(--ink-3); font-size: 12px; margin-bottom: 18px; }
+  .caption b { color: var(--ink-2); font-weight: 600; }
+
+  /* ── Janela macOS ─────────────────────────────────────────── */
+  .window {
+    width: 1180px; max-width: 100%;
+    background: var(--window);
+    border-radius: 12px;
+    border: 1px solid var(--hairline);
+    box-shadow: 0 30px 80px rgba(0,0,0,.55), 0 2px 10px rgba(0,0,0,.4);
+    overflow: hidden;
+    display: grid; grid-template-columns: 208px 1fr;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    background: rgba(255,255,255,0.035);
+    border-right: 1px solid var(--hairline);
+    padding: 14px 10px 16px;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .traffic { display: flex; gap: 8px; padding: 4px 6px 16px; }
+  .traffic span { width: 12px; height: 12px; border-radius: 50%; }
+  .traffic .r { background: #ff5f57; } .traffic .y { background: #febc2e; } .traffic .g { background: #28c840; }
+  .nav-label { font-size: 10px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; padding: 10px 10px 4px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 9px;
+    font-size: 13px; color: var(--ink-2);
+    padding: 6px 10px; border-radius: 7px;
+  }
+  .nav-item.active { background: rgba(57,135,229,0.22); color: var(--ink); }
+  .nav-item .ico { width: 17px; text-align: center; font-size: 13px; }
+  .badge-new {
+    margin-left: auto; font-size: 9px; font-weight: 700; letter-spacing: .04em;
+    color: #0d0d0d; background: var(--st-warn); border-radius: 4px; padding: 1.5px 5px;
+  }
+  .badge-dot { margin-left: auto; min-width: 16px; height: 16px; border-radius: 8px; background: var(--st-crit); color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; padding: 0 4px; }
+  .sidebar .spacer { flex: 1; }
+  .sidebar-foot { border-top: 1px solid var(--hairline); padding-top: 10px; margin-top: 10px; }
+  .live { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--ink-3); padding: 4px 10px; }
+  .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--st-good); box-shadow: 0 0 6px var(--st-good); }
+
+  /* Conteúdo */
+  .content { padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+  .topbar { display: flex; align-items: center; gap: 12px; }
+  .topbar h1 { font-size: 15px; font-weight: 600; }
+  .seg { margin-left: auto; display: flex; background: rgba(255,255,255,0.06); border: 1px solid var(--hairline); border-radius: 7px; padding: 2px; }
+  .seg button {
+    all: unset; font-family: inherit; font-size: 11.5px; color: var(--ink-2);
+    padding: 3.5px 12px; border-radius: 5px; cursor: pointer;
+  }
+  .seg button.on { background: rgba(255,255,255,0.12); color: var(--ink); font-weight: 600; }
+  .tool { font-size: 11.5px; color: var(--ink-2); border: 1px solid var(--hairline); border-radius: 7px; padding: 4.5px 11px; background: rgba(255,255,255,0.04); }
+
+  /* Header de saúde */
+  .health {
+    display: flex; align-items: center; gap: 18px;
+    background: linear-gradient(100deg, rgba(12,163,12,0.10), rgba(12,163,12,0.03) 60%, transparent);
+    border: 1px solid var(--hairline); border-radius: 12px; padding: 14px 18px;
+  }
+  .ring { position: relative; width: 72px; height: 72px; flex: none; }
+  .ring svg { transform: rotate(-90deg); }
+  .ring .num { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .ring .num b { font-size: 22px; font-weight: 650; }
+  .ring .num span { font-size: 8px; color: var(--ink-3); }
+  .health h2 { font-size: 17px; font-weight: 650; }
+  .health .sub { font-size: 12px; color: var(--ink-2); margin-top: 3px; }
+  .health .meta { font-size: 11px; color: var(--ink-3); margin-top: 5px; display: flex; gap: 14px; }
+  .chips { margin-left: auto; display: flex; gap: 8px; }
+  .chip {
+    text-align: right; border: 1px solid var(--hairline); background: rgba(255,255,255,0.04);
+    border-radius: 9px; padding: 7px 12px; min-width: 92px;
+  }
+  .chip b { font-size: 15px; font-weight: 600; display: block; font-variant-numeric: tabular-nums; }
+  .chip span { font-size: 10px; color: var(--ink-3); }
+
+  /* Alertas */
+  .alerts { display: flex; flex-direction: column; gap: 7px; }
+  .alert {
+    display: flex; align-items: center; gap: 11px;
+    border: 1px solid var(--hairline); border-radius: 10px; padding: 9px 13px; font-size: 12px;
+  }
+  .alert .aico { width: 18px; text-align: center; font-size: 14px; }
+  .alert.warn { background: rgba(250,178,25,0.08); } .alert.warn .aico { color: var(--st-warn); }
+  .alert.crit { background: rgba(208,59,59,0.10); } .alert.crit .aico { color: var(--st-crit); }
+  .alert b { font-weight: 600; }
+  .alert .why { color: var(--ink-2); }
+  .alert .act {
+    margin-left: auto; flex: none; font-size: 11.5px; font-weight: 600; color: var(--ink);
+    background: rgba(255,255,255,0.10); border: 1px solid var(--hairline);
+    border-radius: 6px; padding: 4px 11px;
+  }
+  .alert .mute { flex: none; color: var(--ink-3); font-size: 11px; margin-left: 4px; }
+
+  /* Grid de métricas */
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .card {
+    background: var(--card); border: 1px solid var(--hairline);
+    border-radius: 12px; padding: 12px 14px; min-width: 0;
+  }
+  .card .head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+  .card .head .t { font-size: 11px; font-weight: 600; color: var(--ink-2); }
+  .card .head .cur { margin-left: auto; font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .card .sub { font-size: 10px; color: var(--ink-3); margin-bottom: 8px; }
+  .chart { position: relative; }
+  .chart svg { display: block; width: 100%; height: auto; }
+  .card .foot { display: flex; gap: 10px; font-size: 10px; color: var(--ink-3); margin-top: 7px; font-variant-numeric: tabular-nums; }
+  .foot .dl { color: var(--ink-2); }
+
+  /* Tooltip demonstrado (camada de hover) */
+  .tip {
+    position: absolute; left: 58%; top: -6px;
+    background: #2f2f2d; border: 1px solid var(--hairline); border-radius: 7px;
+    padding: 6px 9px; font-size: 10.5px; box-shadow: 0 6px 18px rgba(0,0,0,.5);
+    white-space: nowrap; z-index: 2;
+  }
+  .tip b { font-variant-numeric: tabular-nums; }
+  .tip .tt { color: var(--ink-3); font-size: 9.5px; }
+  .tip .row { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+  .tip .sw { width: 8px; height: 8px; border-radius: 2px; }
+
+  .legend { display: flex; gap: 12px; font-size: 10.5px; color: var(--ink-2); margin: 2px 0 8px; }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2.5px; margin-right: 5px; vertical-align: -1px; }
+
+  /* Liberar espaço */
+  .clean-row { display: flex; align-items: center; gap: 10px; font-size: 12px; padding: 6.5px 0; border-top: 1px solid var(--grid); }
+  .clean-row:first-of-type { border-top: 0; }
+  .clean-row .cico { width: 18px; text-align: center; }
+  .clean-row .sz { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--ink-2); font-weight: 600; }
+  .clean-row input { accent-color: var(--accent); }
+  .clean-cta {
+    margin-top: 10px; display: flex; align-items: center; gap: 10px;
+  }
+  .clean-cta .btn {
+    font-size: 12px; font-weight: 600; color: #fff; background: var(--accent);
+    border-radius: 7px; padding: 6px 14px;
+  }
+  .clean-cta span { font-size: 11px; color: var(--ink-3); }
+
+  /* Atividade */
+  .proc { display: flex; align-items: center; gap: 10px; font-size: 12px; padding: 6px 0; border-top: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+  .proc:first-of-type { border-top: 0; }
+  .proc .bar { flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.08); position: relative; overflow: hidden; }
+  .proc .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 2px; background: var(--s-cpu); }
+  .proc .pc { width: 52px; text-align: right; font-weight: 600; }
+  .proc .mem { width: 64px; text-align: right; color: var(--ink-3); }
+  .proc .x { color: var(--ink-3); border: 1px solid var(--hairline); border-radius: 5px; font-size: 10px; padding: 1.5px 7px; }
+  .proc .nm { width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<div class="caption"><b>Vitality — redesign do dashboard (mockup)</b> · dark mode · itens marcados <b style="color:var(--st-warn)">NOVO</b> são as funcionalidades propostas</div>
+
+<div class="window">
+
+  <!-- ══ Sidebar: substitui o TabView por navegação lateral ══ -->
+  <aside class="sidebar">
+    <div class="traffic"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+    <div class="nav-item active"><span class="ico">◉</span> Visão geral</div>
+    <div class="nav-item"><span class="ico">≣</span> Atividade</div>
+    <div class="nav-item"><span class="ico">⇅</span> Rede <span class="badge-new">NOVO</span></div>
+    <div class="nav-item"><span class="ico">◫</span> Armazenamento</div>
+    <div class="nav-item"><span class="ico">▤</span> Bateria <span class="badge-new">NOVO</span></div>
+    <div class="nav-item"><span class="ico">☵</span> Sensores</div>
+    <div class="nav-label">Config</div>
+    <div class="nav-item"><span class="ico">◔</span> Alertas <span class="badge-dot">2</span></div>
+    <div class="spacer"></div>
+    <div class="sidebar-foot">
+      <div class="live"><i></i> Monitorando · 1s</div>
+      <div class="live" style="gap:9px"><span style="width:7px"></span>MacBook Air · M4</div>
+    </div>
+  </aside>
+
+  <!-- ══ Conteúdo ══ -->
+  <main class="content">
+
+    <div class="topbar">
+      <h1>Visão geral</h1>
+      <!-- NOVO: histórico persistente — o seletor de período vale para todos os gráficos -->
+      <div class="seg">
+        <button>1 h</button><button class="on">24 h</button><button>7 d</button>
+      </div>
+      <div class="tool">Exportar…</div>
+    </div>
+
+    <!-- Header de saúde -->
+    <section class="health">
+      <div class="ring">
+        <svg width="72" height="72" viewBox="0 0 72 72">
+          <circle cx="36" cy="36" r="31" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="6"/>
+          <circle cx="36" cy="36" r="31" fill="none" stroke="var(--st-good)" stroke-width="6"
+                  stroke-linecap="round" stroke-dasharray="194.8" stroke-dashoffset="35"/>
+        </svg>
+        <div class="num"><b>82</b><span>saúde</span></div>
+      </div>
+      <div>
+        <h2>Seu Mac vai bem</h2>
+        <div class="sub">Bom: disco enchendo · maior dedução −10</div>
+        <div class="meta"><span>MacBook Air · Apple M4 · 16 GB · macOS 26.1</span><span>ligado há 6d 4h</span><span>atualizado agora</span></div>
+      </div>
+      <div class="chips">
+        <div class="chip"><b>38%</b><span>CPU agora</span></div>
+        <div class="chip"><b>6,2 W</b><span>consumo</span></div>
+        <div class="chip"><b>41 GB</b><span>livres no disco</span></div>
+      </div>
+    </section>
+
+    <!-- NOVO: central de alertas com ação e "silenciar" -->
+    <section class="alerts">
+      <div class="alert warn">
+        <span class="aico">⚠︎</span>
+        <div><b>Disco enchendo</b> <span class="why">— 41 GB livres (86% usado). Dá para liberar ~18,4 GB com limpeza.</span></div>
+        <div class="act">Liberar espaço</div><div class="mute">silenciar</div>
+      </div>
+      <div class="alert crit">
+        <span class="aico">✕</span>
+        <div><b>CPU sustentada</b> <span class="why">— “XcodeBuildService” está acima de 90% há 12 min.</span></div>
+        <div class="act">Ver processo</div><div class="mute">silenciar</div>
+      </div>
+    </section>
+
+    <!-- Métricas com histórico de 24h (NOVO: antes eram só 5 min) -->
+    <section class="grid4">
+
+      <!-- CPU: demonstra a camada de hover (crosshair + tooltip) -->
+      <div class="card">
+        <div class="head"><span class="t">CPU</span><span class="cur" style="color:var(--s-cpu)">38%</span></div>
+        <div class="sub">10 núcleos · load 2,1</div>
+        <div class="chart">
+          <div class="tip"><span class="tt">14:32</span><div class="row"><i class="sw" style="background:var(--s-cpu)"></i><b>62%</b>&nbsp;pico do build</div></div>
+          <svg viewBox="0 0 210 74" aria-label="CPU nas últimas 24 horas">
+            <g stroke="var(--grid)" stroke-width="1"><line x1="0" y1="37" x2="210" y2="37"/><line x1="0" y1="73" x2="210" y2="73"/></g>
+            <path d="M0,62 L18,58 L36,60 L54,50 L72,54 L90,44 L108,48 L126,22 L138,18 L150,34 L168,52 L186,48 L210,45 L210,73 L0,73 Z" fill="rgba(57,135,229,0.16)"/>
+            <path d="M0,62 L18,58 L36,60 L54,50 L72,54 L90,44 L108,48 L126,22 L138,18 L150,34 L168,52 L186,48 L210,45" fill="none" stroke="var(--s-cpu)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+            <line x1="132" y1="4" x2="132" y2="73" stroke="var(--ink-3)" stroke-width="1" stroke-dasharray="3 3"/>
+            <circle cx="132" cy="20" r="4.5" fill="var(--s-cpu)" stroke="var(--card)" stroke-width="2"/>
+          </svg>
+        </div>
+        <div class="foot"><span>00h</span><span style="margin-left:auto">média <b class="dl">31%</b></span><span>pico <b class="dl">62%</b></span></div>
+      </div>
+
+      <div class="card">
+        <div class="head"><span class="t">GPU</span><span class="cur" style="color:var(--s-gpu)">12%</span></div>
+        <div class="sub">Apple M4 · 1,1 GB em uso</div>
+        <div class="chart">
+          <svg viewBox="0 0 210 74" aria-label="GPU nas últimas 24 horas">
+            <g stroke="var(--grid)" stroke-width="1"><line x1="0" y1="37" x2="210" y2="37"/><line x1="0" y1="73" x2="210" y2="73"/></g>
+            <path d="M0,68 L20,66 L40,67 L60,60 L80,64 L100,52 L120,58 L140,40 L158,55 L176,63 L210,64 L210,73 L0,73 Z" fill="rgba(217,89,38,0.15)"/>
+            <path d="M0,68 L20,66 L40,67 L60,60 L80,64 L100,52 L120,58 L140,40 L158,55 L176,63 L210,64" fill="none" stroke="var(--s-gpu)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="foot"><span>00h</span><span style="margin-left:auto">média <b class="dl">9%</b></span><span>pico <b class="dl">46%</b></span></div>
+      </div>
+
+      <div class="card">
+        <div class="head"><span class="t">Memória</span><span class="cur" style="color:var(--s-ram)">71%</span></div>
+        <div class="sub">11,4 de 16 GB · swap 0,6 GB</div>
+        <div class="chart">
+          <svg viewBox="0 0 210 74" aria-label="Memória nas últimas 24 horas">
+            <g stroke="var(--grid)" stroke-width="1"><line x1="0" y1="37" x2="210" y2="37"/><line x1="0" y1="73" x2="210" y2="73"/></g>
+            <path d="M0,34 L24,32 L48,35 L72,28 L96,30 L120,24 L144,27 L168,22 L190,25 L210,22 L210,73 L0,73 Z" fill="rgba(25,158,112,0.15)"/>
+            <path d="M0,34 L24,32 L48,35 L72,28 L96,30 L120,24 L144,27 L168,22 L190,25 L210,22" fill="none" stroke="var(--s-ram)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="foot"><span>00h</span><span style="margin-left:auto">média <b class="dl">67%</b></span><span>pico <b class="dl">78%</b></span></div>
+      </div>
+
+      <div class="card">
+        <div class="head"><span class="t">Disco</span><span class="cur" style="color:var(--s-disk)">86%</span></div>
+        <div class="sub">41 GB livres de 256 GB</div>
+        <div class="chart">
+          <svg viewBox="0 0 210 74" aria-label="Uso do disco nas últimas 24 horas">
+            <g stroke="var(--grid)" stroke-width="1"><line x1="0" y1="37" x2="210" y2="37"/><line x1="0" y1="73" x2="210" y2="73"/></g>
+            <path d="M0,22 L40,21 L80,20 L120,18 L150,16 L180,14 L210,13 L210,73 L0,73 Z" fill="rgba(201,133,0,0.14)"/>
+            <path d="M0,22 L40,21 L80,20 L120,18 L150,16 L180,14 L210,13" fill="none" stroke="var(--s-disk)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="foot"><span>00h</span><span style="margin-left:auto">+2,1 GB em 24h</span></div>
+      </div>
+    </section>
+
+    <section class="grid2">
+
+      <!-- NOVO: Rede -->
+      <div class="card">
+        <div class="head"><span class="t">Rede — Wi-Fi</span><span class="badge-new" style="margin-left:6px">NOVO</span><span class="cur" style="font-size:14px">↓ 8,4 MB/s &nbsp;·&nbsp; ↑ 0,9 MB/s</span></div>
+        <div class="legend"><span><i style="background:var(--s-cpu)"></i>Download</span><span><i style="background:var(--s-gpu)"></i>Upload</span></div>
+        <div class="chart">
+          <svg viewBox="0 0 470 86" aria-label="Tráfego de rede nas últimas 24 horas">
+            <g stroke="var(--grid)" stroke-width="1"><line x1="0" y1="43" x2="470" y2="43"/><line x1="0" y1="85" x2="470" y2="85"/></g>
+            <path d="M0,78 L40,74 L80,76 L120,60 L160,66 L200,38 L240,50 L280,20 L320,42 L360,70 L400,74 L440,72 L470,70" fill="none" stroke="var(--s-cpu)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+            <path d="M0,83 L40,82 L80,83 L120,79 L160,81 L200,74 L240,78 L280,68 L320,76 L360,82 L400,83 L440,82 L470,81" fill="none" stroke="var(--s-gpu)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+            <text x="292" y="14" fill="var(--ink-2)" font-size="10" font-family="system-ui">pico 42 MB/s</text>
+          </svg>
+        </div>
+        <div class="foot"><span>00h</span><span style="margin-left:auto">hoje: <b class="dl">6,1 GB</b> baixados · <b class="dl">840 MB</b> enviados</span></div>
+        <div class="foot" style="margin-top:4px"><span>Por app: Safari 3,2 GB · Xcode 1,9 GB · Spotify 610 MB</span></div>
+      </div>
+
+      <!-- NOVO: Bateria -->
+      <div class="card">
+        <div class="head"><span class="t">Bateria — saúde</span><span class="badge-new" style="margin-left:6px">NOVO</span><span class="cur" style="color:var(--st-good)">94%</span></div>
+        <div class="sub">182 ciclos · 87% de carga agora · na tomada</div>
+        <div class="chart">
+          <svg viewBox="0 0 470 66" aria-label="Capacidade máxima da bateria nos últimos 12 meses">
+            <g stroke="var(--grid)" stroke-width="1"><line x1="0" y1="33" x2="470" y2="33"/><line x1="0" y1="65" x2="470" y2="65"/></g>
+            <path d="M0,12 L60,13 L120,15 L180,16 L240,19 L300,20 L360,23 L420,25 L470,26" fill="none" stroke="var(--st-good)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+            <circle cx="470" cy="26" r="4" fill="var(--st-good)" stroke="var(--card)" stroke-width="2"/>
+            <text x="8" y="10" fill="var(--ink-3)" font-size="10" font-family="system-ui">100%</text>
+            <text x="400" y="44" fill="var(--ink-2)" font-size="10" font-family="system-ui">94% hoje</text>
+          </svg>
+        </div>
+        <div class="foot"><span>ago 2025</span><span style="margin-left:auto">−6% em 12 meses · dentro do esperado</span></div>
+        <div class="foot" style="margin-top:4px"><span>⚡ Dica: no carregador há 9h — considere limite de carga em 80%</span></div>
+      </div>
+    </section>
+
+    <section class="grid2">
+
+      <!-- NOVO: Liberar espaço -->
+      <div class="card">
+        <div class="head"><span class="t">Liberar espaço</span><span class="badge-new" style="margin-left:6px">NOVO</span><span class="cur">18,4 GB</span></div>
+        <div class="sub">encontrado em 4 categorias — nada é apagado sem confirmação, tudo vai para a Lixeira</div>
+        <div class="clean-row"><input type="checkbox" checked><span class="cico">⚙︎</span> Xcode DerivedData <span class="sz">9,8 GB</span></div>
+        <div class="clean-row"><input type="checkbox" checked><span class="cico">▣</span> Caches de apps <span class="sz">4,6 GB</span></div>
+        <div class="clean-row"><input type="checkbox"><span class="cico">⌫</span> Lixeira <span class="sz">2,9 GB</span></div>
+        <div class="clean-row"><input type="checkbox"><span class="cico">⤓</span> Downloads com +90 dias <span class="sz">1,1 GB</span></div>
+        <div class="clean-cta"><div class="btn">Liberar 14,4 GB…</div><span>revisão antes de mover</span></div>
+      </div>
+
+      <!-- Top atividade -->
+      <div class="card">
+        <div class="head"><span class="t">Top atividade</span><span class="cur" style="font-size:12px; color:var(--ink-3); font-weight:500">ver tudo →</span></div>
+        <div class="sub">maiores consumidores de CPU agora</div>
+        <div class="proc"><span class="nm">XcodeBuildService</span><div class="bar"><i style="width:92%"></i></div><span class="pc" style="color:var(--st-crit)">92,4%</span><span class="mem">1,9 GB</span><span class="x">Encerrar</span></div>
+        <div class="proc"><span class="nm">Safari</span><div class="bar"><i style="width:18%"></i></div><span class="pc">18,2%</span><span class="mem">860 MB</span><span class="x">Encerrar</span></div>
+        <div class="proc"><span class="nm">WindowServer</span><div class="bar"><i style="width:11%"></i></div><span class="pc">11,0%</span><span class="mem">410 MB</span><span class="x">—</span></div>
+        <div class="proc"><span class="nm">Spotify</span><div class="bar"><i style="width:6%"></i></div><span class="pc">6,3%</span><span class="mem">520 MB</span><span class="x">Encerrar</span></div>
+        <div class="proc"><span class="nm">kernel_task</span><div class="bar"><i style="width:4%"></i></div><span class="pc">4,1%</span><span class="mem">2,3 GB</span><span class="x">—</span></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div class="caption" style="margin-top:18px">
+  Gráficos com dados ilustrativos · paleta categórica validada (CVD ΔE ≥ 8,4 · contraste ≥ 3:1 no dark) ·
+  hover demonstrado no card de CPU (crosshair + tooltip)
+</div>
+
+</body>
+</html>
