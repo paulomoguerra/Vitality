@@ -6,9 +6,17 @@ import IOKit
 /// Apple exposes no public framework for GPU utilisation, and several tools
 /// that claim to report it return -1 on Apple silicon. The real numbers live in
 /// the IOAccelerator service's `PerformanceStatistics` dictionary.
-enum GPUMonitor {
+///
+/// An instance rather than a namespace so the device name can be resolved once.
+/// Reading it walks up to the parent registry node and copies a CF property —
+/// worth doing for a name that is fixed for the life of the machine, not worth
+/// repeating every second.
+final class GPUMonitor {
 
-    static func sample() -> GPUStats? {
+    private var name: String?
+    private var didResolveName = false
+
+    func sample() -> GPUStats? {
         var iterator: io_iterator_t = 0
         let matching = IOServiceMatching("IOAccelerator")
         guard IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator) == KERN_SUCCESS
@@ -26,15 +34,20 @@ enum GPUMonitor {
 
             // Only the real accelerator publishes a utilisation figure; skip
             // any other IOAccelerator nodes that don't.
-            guard let utilization = number(stats["Device Utilization %"]) else { continue }
+            guard let utilization = Self.number(stats["Device Utilization %"]) else { continue }
+
+            if !didResolveName {
+                name = Self.registryName(entry)
+                didResolveName = true
+            }
 
             return GPUStats(
-                name: registryName(entry),
+                name: name,
                 utilization: utilization,
-                rendererUtilization: number(stats["Renderer Utilization %"]),
-                tilerUtilization: number(stats["Tiler Utilization %"]),
-                inUseMemory: number(stats["In use system memory"]).map { Int64($0) },
-                allocatedMemory: number(stats["Alloc system memory"]).map { Int64($0) }
+                rendererUtilization: Self.number(stats["Renderer Utilization %"]),
+                tilerUtilization: Self.number(stats["Tiler Utilization %"]),
+                inUseMemory: Self.number(stats["In use system memory"]).map { Int64($0) },
+                allocatedMemory: Self.number(stats["Alloc system memory"]).map { Int64($0) }
             )
         }
         return nil

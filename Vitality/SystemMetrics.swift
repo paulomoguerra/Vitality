@@ -26,6 +26,7 @@ final class SystemMetrics {
 
     private var previousCPUTicks: [[UInt32]]?
     private let thermalMonitor = ThermalMonitor()
+    private let gpuMonitor = GPUMonitor()
     private let hardwareProvider = HardwareMetricsProvider()
     private let volumeProvider = VolumeMetricsProvider()
     private let batteryProvider = BatteryMetricsProvider()
@@ -58,14 +59,14 @@ final class SystemMetrics {
             healthScore: health.score,
             healthScoreMsg: health.message,
             cpu: cpu,
-            gpu: GPUMonitor.sample(),
+            gpu: gpuMonitor.sample(),
             memory: memory,
             disks: disks,
             power: power,
             batteries: batterySnapshot.battery.map { [$0] } ?? [],
             topProcesses: processes.top,
             thermal: thermal,
-            collectedAt: Date()
+            collectedAt: now
         )
     }
 

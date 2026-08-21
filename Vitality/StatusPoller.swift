@@ -49,6 +49,11 @@ final class StatusPoller: ObservableObject {
 
     /// WidgetKit budgets how often an extension may reload. Asking on every
     /// poll would get Vitality throttled and refresh the widgets *less* often.
+    ///
+    /// The shared status file is written on the same clock. Its only reader is
+    /// the widget extension, so encoding and atomically rewriting it once a
+    /// second — thirty times more often than anything looked at it — was thirty
+    /// times the work for the same result.
     private let widgetReloadInterval: TimeInterval = 30
 
     /// Keep a one-second cadence for live CPU and memory readings. SystemMetrics
@@ -56,33 +61,43 @@ final class StatusPoller: ObservableObject {
     /// previous collection has not finished yet.
     init(interval: TimeInterval = 1) {
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
+        // A menu bar app is awake for the whole session, so its timer decides
+        // how often the CPU has to wake at all. Slack lets the kernel coalesce
+        // this tick with everything else that was due around the same moment,
+        // which is free on accuracy and not free on battery.
+        timer.tolerance = interval * 0.2
+        self.timer = timer
     }
 
     deinit { timer?.invalidate() }
 
     func refresh() {
-        engine.collect { [weak self] status in
-            let writeError = SharedStatusStore.write(status)
+        let now = Date()
+        let isWidgetRefreshDue = now.timeIntervalSince(lastWidgetReload) >= widgetReloadInterval
+        if isWidgetRefreshDue { lastWidgetReload = now }
+
+        let started = engine.collect { [weak self] status in
+            // Still on the metrics queue: encoding and writing the shared file
+            // never touches the main thread.
+            let writeError = isWidgetRefreshDue ? SharedStatusStore.write(status) : nil
             Task { @MainActor in
                 guard let self else { return }
                 if let writeError {
                     self.log.error("shared store write failed: \(writeError.localizedDescription, privacy: .public)")
                     self.lastError = writeError.localizedDescription
-                } else {
+                } else if isWidgetRefreshDue {
                     self.lastError = nil
                 }
                 self.latest = status
-                self.reloadWidgetsIfDue()
+                if isWidgetRefreshDue { WidgetCenter.shared.reloadAllTimelines() }
             }
         }
-    }
 
-    private func reloadWidgetsIfDue() {
-        guard Date().timeIntervalSince(lastWidgetReload) >= widgetReloadInterval else { return }
-        lastWidgetReload = Date()
-        WidgetCenter.shared.reloadAllTimelines()
+        // The tick was dropped because a collection is still running. Give the
+        // slot back, or the widgets would wait a further 30 seconds for it.
+        if !started, isWidgetRefreshDue { lastWidgetReload = .distantPast }
     }
 }

@@ -51,6 +51,27 @@ targets:
       - target: VitalityWidget
         embed: true
 
+  # No test host. Vitality is an LSUIElement menu bar app, and hosting the tests
+  # inside it means launching a status item and a 1 Hz poller to exercise a hash
+  # function. The units under test are pure, so the bundle compiles them
+  # directly — which is also why this list is explicit: it states what is being
+  # tested rather than pulling in the whole app.
+  VitalityTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: VitalityTests
+      - path: Vitality/DuplicateAnalyzer.swift
+      - path: Vitality/HealthScore.swift
+      - path: Vitality/ActionError.swift
+      - path: VitalityShared/SystemStatus.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.paulomateus.vitality.tests
+        # A test bundle has nothing to declare, so let the toolchain synthesise
+        # the plist rather than checking an empty one into the repo.
+        GENERATE_INFOPLIST_FILE: "YES"
+
   VitalityWidget:
     type: app-extension
     platform: macOS
@@ -79,5 +100,10 @@ schemes:
     build:
       targets:
         Vitality: all
+        VitalityTests: [test]
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - VitalityTests

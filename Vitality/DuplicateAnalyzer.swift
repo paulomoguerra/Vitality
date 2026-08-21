@@ -23,9 +23,34 @@ enum DuplicateAnalyzer {
 
     private static let chunkSize = 1024 * 1024
 
+    /// How much of a file is enough to tell it apart from a same-sized
+    /// neighbour. Two files that differ at all almost always differ inside the
+    /// first block — headers, timestamps, magic numbers — so reading 64 KB
+    /// answers "are these different?" for nearly every pair, and only genuine
+    /// candidates go on to be read in full.
+    private static let prefixSize = 64 * 1024
+
+    /// A file that survived size grouping and is worth reading.
+    private struct Candidate {
+        let url: URL
+        let size: Int64
+        let modified: Date?
+    }
+
+    /// Size travels with the digest because two files of different lengths can
+    /// share a prefix hash, and merging those would report them as identical.
+    private struct DigestKey: Hashable {
+        let size: Int64
+        let digest: String
+    }
+
     /// Finds exact duplicate files under a user-selected directory.
-    /// Files are grouped by logical size before hashing, so most files are
-    /// never read. Packages and hidden files are skipped by default.
+    ///
+    /// Three sieves, each cheaper than the one after it: group by size (reads
+    /// nothing), then by a 64 KB prefix digest, and only then hash the survivors
+    /// end to end. A folder of ten same-sized videos that merely happen to match
+    /// in length is settled after 640 KB instead of gigabytes. Both hashing
+    /// passes run across all cores. Packages and hidden files are skipped.
     static func scan(path: String) -> Result<[DuplicateGroup], ActionError> {
         let root = URL(fileURLWithPath: path).standardizedFileURL
         var isDirectory: ObjCBool = false
@@ -47,32 +72,57 @@ enum DuplicateAnalyzer {
             return .failure(ActionError("Vitality couldn't scan that folder."))
         }
 
-        var bySize: [Int64: [URL]] = [:]
+        let keySet = Set(keys)
+        var bySize: [Int64: [Candidate]] = [:]
         for case let url as URL in enumerator {
-            guard let values = try? url.resourceValues(forKeys: Set(keys)),
+            // Read the resource values once, here. The modification date is
+            // wanted later, and asking the filesystem for it a second time is
+            // a stat per surviving file for something already in hand.
+            guard let values = try? url.resourceValues(forKeys: keySet),
                   values.isRegularFile == true,
                   let fileSize = values.fileSize,
                   fileSize > 0 else { continue }
-            bySize[Int64(fileSize), default: []].append(url)
+            bySize[Int64(fileSize), default: []].append(Candidate(
+                url: url,
+                size: Int64(fileSize),
+                modified: values.contentModificationDate
+            ))
         }
 
-        var byDigest: [String: [DuplicateFile]] = [:]
-        for (size, urls) in bySize where urls.count > 1 {
-            for url in urls {
-                guard let digest = hash(url) else { continue }
-                let values = try? url.resourceValues(forKeys: Set(keys))
-                byDigest[digest, default: []].append(DuplicateFile(
-                    path: url.path,
-                    name: url.lastPathComponent,
-                    size: size,
-                    modified: values?.contentModificationDate
-                ))
+        // Sieve two: a 64 KB prefix. For anything at or under that size the
+        // prefix *is* the whole file, so those are settled here and never read
+        // again.
+        var byDigest: [DigestKey: [DuplicateFile]] = [:]
+        var contested: [[Candidate]] = []
+        for (size, candidates) in bySize where candidates.count > 1 {
+            let prefixes = digests(of: candidates, upTo: prefixSize)
+            var byPrefix: [String: [Candidate]] = [:]
+            for (candidate, prefix) in zip(candidates, prefixes) {
+                guard let prefix else { continue }
+                byPrefix[prefix, default: []].append(candidate)
+            }
+            for (prefix, matches) in byPrefix where matches.count > 1 {
+                if size <= Int64(prefixSize) {
+                    byDigest[DigestKey(size: size, digest: prefix)] = matches.map(Self.file(from:))
+                } else {
+                    contested.append(matches)
+                }
             }
         }
 
-        let groups = byDigest.map { digest, files in
+        // Sieve three: the full read, for the few that got this far.
+        for candidates in contested {
+            let full = digests(of: candidates, upTo: nil)
+            for (candidate, digest) in zip(candidates, full) {
+                guard let digest else { continue }
+                byDigest[DigestKey(size: candidate.size, digest: digest), default: []]
+                    .append(Self.file(from: candidate))
+            }
+        }
+
+        let groups = byDigest.map { key, files in
             DuplicateGroup(
-                digest: digest,
+                digest: key.digest,
                 files: files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
             )
         }
@@ -122,16 +172,42 @@ enum DuplicateAnalyzer {
         }
     }
 
-    private static func hash(_ url: URL) -> String? {
+    private static func file(from candidate: Candidate) -> DuplicateFile {
+        DuplicateFile(path: candidate.url.path,
+                      name: candidate.url.lastPathComponent,
+                      size: candidate.size,
+                      modified: candidate.modified)
+    }
+
+    /// Hashes a batch across every core. Hashing is CPU-bound on top of I/O the
+    /// kernel can overlap, so one file at a time leaves most of the machine
+    /// idle during exactly the operation the user is waiting on.
+    ///
+    /// Each iteration writes its own slot and reads no other, so the results
+    /// need no lock.
+    private static func digests(of candidates: [Candidate], upTo limit: Int?) -> [String?] {
+        var results = [String?](repeating: nil, count: candidates.count)
+        results.withUnsafeMutableBufferPointer { buffer in
+            DispatchQueue.concurrentPerform(iterations: candidates.count) { index in
+                buffer[index] = hash(candidates[index].url, upTo: limit)
+            }
+        }
+        return results
+    }
+
+    /// `limit` reads at most that many bytes; `nil` reads the whole file.
+    private static func hash(_ url: URL, upTo limit: Int?) -> String? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
 
         var hasher = SHA256()
+        var remaining = limit ?? Int.max
         do {
-            while true {
-                let data = try handle.read(upToCount: chunkSize) ?? Data()
+            while remaining > 0 {
+                let data = try handle.read(upToCount: min(chunkSize, remaining)) ?? Data()
                 if data.isEmpty { break }
                 hasher.update(data: data)
+                remaining -= data.count
             }
             return hasher.finalize().map { String(format: "%02x", $0) }.joined()
         } catch {
