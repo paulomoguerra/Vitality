@@ -22,7 +22,7 @@ struct StorageView: View {
     @State private var actionError: String?
 
     @State private var sort: [KeyPathComparator<DiskEntry>] = [
-        KeyPathComparator(\DiskEntry.sortSize, order: .reverse)
+        KeyPathComparator(\DiskEntry.size, order: .reverse)
     ]
 
     private var sortedEntries: [DiskEntry] { entries.sorted(using: sort) }
@@ -188,7 +188,7 @@ struct StorageView: View {
             }
         } else {
             Table(sortedEntries, sortOrder: $sort) {
-                TableColumn("Name", value: \.sortName) { entry in
+                TableColumn("Name", value: \.name) { entry in
                     HStack(spacing: 5) {
                         Image(systemName: entry.isDirectory ? "folder.fill" : "doc")
                             .font(.system(size: 10)).foregroundStyle(.secondary)
@@ -200,7 +200,7 @@ struct StorageView: View {
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
                 .width(58)
-                TableColumn("Size", value: \.sortSize) { entry in
+                TableColumn("Size", value: \.size) { entry in
                     Text(Fmt.bytes(entry.size)).font(.system(size: 11, weight: .medium))
                 }
                 .width(84)

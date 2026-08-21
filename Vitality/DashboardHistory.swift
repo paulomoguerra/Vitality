@@ -1,9 +1,11 @@
 import Combine
 import Foundation
 
-/// Short-lived history for the dashboard. It is deliberately separate from
-/// menu-bar history: the dashboard owns its own window lifetime and can keep a
-/// wider, more useful five-minute view without changing widget payloads.
+/// Five-minute history for the dashboard. It is deliberately separate from
+/// menu-bar history: the dashboard can keep a wider, more useful view without
+/// changing widget payloads. Owned by `DashboardWindowController` rather than
+/// the view tree, so it records for the whole session and the charts are full
+/// the moment the window opens — even after the window itself was torn down.
 @MainActor
 final class DashboardHistory: ObservableObject {
 

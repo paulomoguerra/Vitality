@@ -240,11 +240,10 @@ struct BatteryMetricsProvider {
     }
 }
 
-/// Reads the process count and the compact top-process view used by status.
+/// Reads the compact top-process view used by status.
 struct ProcessMetricsProvider {
 
     struct Snapshot {
-        let count: Int?
         let top: [SystemStatus.TopProcess]
     }
 
@@ -252,13 +251,6 @@ struct ProcessMetricsProvider {
         let top = ProcessManager.list(limit: 5).map {
             SystemStatus.TopProcess(pid: $0.pid, name: $0.name, cpu: $0.cpu, memoryBytes: $0.memoryBytes)
         }
-        return Snapshot(count: processCount(), top: top)
-    }
-
-    private func processCount() -> Int? {
-        var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
-        var size = 0
-        guard sysctl(&name, 4, nil, &size, nil, 0) == 0 else { return nil }
-        return size / MemoryLayout<kinfo_proc>.stride
+        return Snapshot(top: top)
     }
 }

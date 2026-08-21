@@ -41,7 +41,7 @@ struct DuplicateFilesView: View {
         }
         .onDisappear { scanTask?.cancel() }
         .confirmationDialog(
-            pendingTrash.isEmpty ? "Move files to Trash?" : "Move (pendingTrash.count) files to Trash?",
+            pendingTrash.count == 1 ? "Move 1 file to Trash?" : "Move \(pendingTrash.count) files to Trash?",
             isPresented: Binding(
                 get: { !pendingTrash.isEmpty },
                 set: { if !$0 { pendingTrash = [] } }

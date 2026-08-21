@@ -9,14 +9,6 @@ struct GPUStats: Codable, Equatable {
     let tilerUtilization: Double?
     let inUseMemory: Int64?
     let allocatedMemory: Int64?
-
-    enum CodingKeys: String, CodingKey {
-        case name, utilization
-        case rendererUtilization = "renderer_utilization"
-        case tilerUtilization = "tiler_utilization"
-        case inUseMemory = "in_use_memory"
-        case allocatedMemory = "allocated_memory"
-    }
 }
 
 /// A snapshot of the machine, measured entirely through public macOS APIs.
@@ -52,7 +44,6 @@ struct SystemStatus: Codable {
         let swapUsed: Int64?
         let swapTotal: Int64?
         let cached: Int64?
-        let pressure: String?
     }
 
     struct Disk: Codable, Identifiable {
@@ -146,7 +137,6 @@ struct SystemStatus: Codable {
 
     let host: String?
     let uptime: String?
-    let procs: Int?
     let hardware: Hardware?
     let healthScore: Int?
     let healthScoreMsg: String?

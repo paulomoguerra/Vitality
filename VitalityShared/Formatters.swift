@@ -1,15 +1,22 @@
 import Foundation
 
 enum Fmt {
+    /// One shared instance: formatters are expensive to create, and this one is
+    /// asked for dozens of strings per render while the dashboard is open. Only
+    /// ever touched from SwiftUI view bodies, so main-thread confinement holds.
+    private static let byteFormatter: ByteCountFormatter = {
+        let f = ByteCountFormatter()
+        f.countStyle = .file
+        f.allowedUnits = [.useKB, .useMB, .useGB, .useTB]
+        return f
+    }()
+
     /// Human byte sizes. `.file` counting matches what Finder reports, so the
     /// numbers Vitality shows line up with what the user sees in Finder rather
     /// than disagreeing by ~7% the way binary (GiB) counting would.
     static func bytes(_ value: Int64?) -> String {
         guard let value, value > 0 else { return "—" }
-        let f = ByteCountFormatter()
-        f.countStyle = .file
-        f.allowedUnits = [.useKB, .useMB, .useGB, .useTB]
-        return f.string(fromByteCount: value)
+        return byteFormatter.string(fromByteCount: value)
     }
 
     static func percent(_ value: Double?, decimals: Int = 0) -> String {

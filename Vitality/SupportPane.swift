@@ -43,7 +43,7 @@ enum Support {
     /// Uppercased first — bech32 is case-insensitive, and an all-uppercase
     /// payload lets the encoder pick QR alphanumeric mode over byte mode. Same
     /// address, 39 modules instead of far more, easier to scan.
-    static func qrImage() -> NSImage? {
+    static let qrImage: NSImage? = {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(lnurl.uppercased().utf8)
         filter.correctionLevel = "M"
@@ -65,7 +65,7 @@ enum Support {
         source.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
         image.unlockFocus()
         return image
-    }
+    }()
 }
 
 struct SupportPane: View {
@@ -115,7 +115,7 @@ struct SupportPane: View {
     /// mode — which looks fine and scans in nothing.
     private var qrCard: some View {
         Group {
-            if let qr = Support.qrImage() {
+            if let qr = Support.qrImage {
                 Image(nsImage: qr)
                     .resizable()
                     .interpolation(.none)

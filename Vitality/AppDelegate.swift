@@ -36,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         popover = NSPopover()
         popover.behavior = .transient
+        popover.delegate = self
         popover.contentViewController = NSHostingController(
             rootView: MenuBarView(poller: poller,
                                   settings: settings,
@@ -45,18 +46,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             })
         )
 
-        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            guard let self, self.popover.isShown else { return }
-            self.popover.performClose(nil)
-        }
-
         // No setup step: Vitality measures everything itself, so it works the
         // moment it launches with nothing to install first.
         log.info("launch: native metrics, no external dependency")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        removeEventMonitor()
+    }
+
+    /// Backstop for `.transient`, which doesn't always close a status-item
+    /// popover when another app's window takes the click. Installed only while
+    /// the popover is up — a global monitor wakes the app on every click
+    /// anywhere in macOS, so it must not outlive the one moment it serves.
+    private func installEventMonitor() {
+        removeEventMonitor()
+        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            guard let self, self.popover.isShown else { return }
+            self.popover.performClose(nil)
+        }
+    }
+
+    private func removeEventMonitor() {
         if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+        eventMonitor = nil
     }
 
     private func openDashboard() {
@@ -71,10 +84,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(sender)
         } else {
+            installEventMonitor()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             // The popover hosts its own SwiftUI content; make it key so text
             // fields and buttons inside respond to the first click.
             popover.contentViewController?.view.window?.makeKey()
         }
+    }
+}
+
+extension AppDelegate: NSPopoverDelegate {
+    func popoverDidClose(_ notification: Notification) {
+        // A fast re-open can install a fresh monitor before this close's
+        // notification lands; don't tear down the backstop of a live popover.
+        guard !popover.isShown else { return }
+        removeEventMonitor()
     }
 }

@@ -10,10 +10,16 @@ import SwiftUI
 @MainActor
 final class DashboardWindowController {
     private var window: NSWindow?
+    private var closeObserver: NSObjectProtocol?
     private let poller: StatusPoller
+    /// Owned here, not by the view tree: recording a snapshot a second costs
+    /// nothing, and it means the overview charts are already populated when the
+    /// window opens — including a reopen after the window was torn down.
+    private let history: DashboardHistory
 
     init(poller: StatusPoller) {
         self.poller = poller
+        self.history = DashboardHistory(poller: poller)
     }
 
     func show() {
@@ -23,13 +29,31 @@ final class DashboardWindowController {
             return
         }
 
-        let hosting = NSHostingController(rootView: DashboardView(poller: poller))
+        let hosting = NSHostingController(rootView: DashboardView(poller: poller, history: history))
         let window = NSWindow(contentViewController: hosting)
         window.title = "Vitality"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.setContentSize(NSSize(width: 720, height: 520))
         window.center()
         window.isReleasedWhenClosed = false
+
+        // Tear the window down on close rather than keeping it around. A kept
+        // window keeps its SwiftUI tree observing the 1 Hz poller — charts and
+        // insights re-evaluated every second for a window nobody can see.
+        closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            // Delivered on the main queue, synchronously with the close — no
+            // async hop, so a re-open can never catch the dying window.
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let closeObserver = self.closeObserver {
+                    NotificationCenter.default.removeObserver(closeObserver)
+                }
+                self.closeObserver = nil
+                self.window = nil
+            }
+        }
 
         self.window = window
         window.makeKeyAndOrderFront(nil)

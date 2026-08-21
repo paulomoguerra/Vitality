@@ -20,11 +20,12 @@ enum DashboardTab: String, CaseIterable, Identifiable {
 
 struct DashboardView: View {
     @ObservedObject var poller: StatusPoller
+    let history: DashboardHistory
     @State private var tab: DashboardTab = .overview
 
     var body: some View {
         TabView(selection: $tab) {
-            OverviewView(poller: poller) { tab = $0 }
+            OverviewView(poller: poller, history: history) { tab = $0 }
                 .tabItem { Label(DashboardTab.overview.rawValue,
                                  systemImage: DashboardTab.overview.icon) }
                 .tag(DashboardTab.overview)
@@ -53,13 +54,15 @@ struct DashboardView: View {
 
 struct OverviewView: View {
     @ObservedObject var poller: StatusPoller
+    @ObservedObject var history: DashboardHistory
     let openTab: (DashboardTab) -> Void
-    @StateObject private var history: DashboardHistory
 
-    init(poller: StatusPoller, openTab: @escaping (DashboardTab) -> Void = { _ in }) {
+    init(poller: StatusPoller,
+         history: DashboardHistory,
+         openTab: @escaping (DashboardTab) -> Void = { _ in }) {
         self.poller = poller
+        self.history = history
         self.openTab = openTab
-        _history = StateObject(wrappedValue: DashboardHistory(poller: poller))
     }
 
     var body: some View {

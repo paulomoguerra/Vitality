@@ -54,7 +54,6 @@ final class SystemMetrics {
         return SystemStatus(
             host: hardware.hostName,
             uptime: formattedUptime(),
-            procs: processes.count,
             hardware: hardware.hardware,
             healthScore: health.score,
             healthScoreMsg: health.message,
@@ -159,7 +158,7 @@ final class SystemMetrics {
         guard result == KERN_SUCCESS else {
             return SystemStatus.Memory(used: nil, total: total, available: nil,
                                        usedPercent: nil, swapUsed: nil, swapTotal: nil,
-                                       cached: nil, pressure: nil)
+                                       cached: nil)
         }
 
         let page = Int64(vm_kernel_page_size)
@@ -181,8 +180,7 @@ final class SystemMetrics {
             usedPercent: total > 0 ? Double(used) / Double(total) * 100 : nil,
             swapUsed: gotSwap ? Int64(swap.xsu_used) : nil,
             swapTotal: gotSwap ? Int64(swap.xsu_total) : nil,
-            cached: cached,
-            pressure: nil
+            cached: cached
         )
     }
 

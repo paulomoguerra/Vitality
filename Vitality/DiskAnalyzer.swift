@@ -10,9 +10,7 @@ struct DiskEntry: Identifiable, Hashable {
 
     var id: String { path }
 
-    // Table sorting needs Comparable key paths.
-    var sortSize: Int64 { size }
-    var sortName: String { name }
+    // Table sorting needs a Comparable key path, and Bool isn't.
     var sortKind: Int { isDirectory ? 0 : 1 }
 }
 
@@ -61,21 +59,21 @@ enum DiskAnalyzer {
             return .failure(ActionError(error.localizedDescription))
         }
 
+        // Each iteration writes only its own slot, so no lock is needed.
         var results = [DiskEntry?](repeating: nil, count: children.count)
-        let lock = NSLock()
-
-        DispatchQueue.concurrentPerform(iterations: children.count) { index in
-            let url = children[index]
-            let values = try? url.resourceValues(forKeys: Set(keys))
-            let isDir = values?.isDirectory ?? false
-            let entry = DiskEntry(
-                name: url.lastPathComponent,
-                path: url.path,
-                size: isDir ? directorySize(url) : fileSize(values),
-                isDirectory: isDir,
-                modified: values?.contentModificationDate
-            )
-            lock.lock(); results[index] = entry; lock.unlock()
+        results.withUnsafeMutableBufferPointer { buffer in
+            DispatchQueue.concurrentPerform(iterations: children.count) { index in
+                let url = children[index]
+                let values = try? url.resourceValues(forKeys: Set(keys))
+                let isDir = values?.isDirectory ?? false
+                buffer[index] = DiskEntry(
+                    name: url.lastPathComponent,
+                    path: url.path,
+                    size: isDir ? directorySize(url) : fileSize(values),
+                    isDirectory: isDir,
+                    modified: values?.contentModificationDate
+                )
+            }
         }
 
         return .success(results.compactMap { $0 }.sorted { $0.size > $1.size })

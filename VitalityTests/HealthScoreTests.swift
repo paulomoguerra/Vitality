@@ -18,7 +18,7 @@ final class HealthScoreTests: XCTestCase {
     private func memory(swapUsed: Int64? = 0,
                         swapTotal: Int64? = 4_000_000_000) -> SystemStatus.Memory {
         SystemStatus.Memory(used: nil, total: nil, available: nil, usedPercent: nil,
-                            swapUsed: swapUsed, swapTotal: swapTotal, cached: nil, pressure: nil)
+                            swapUsed: swapUsed, swapTotal: swapTotal, cached: nil)
     }
 
     private func disk(usedPercent: Double?) -> SystemStatus.Disk {
@@ -123,7 +123,7 @@ final class HealthScoreTests: XCTestCase {
         let full = SystemStatus.Memory(used: 15_000_000_000, total: 16_000_000_000,
                                        available: 1_000_000_000, usedPercent: 94,
                                        swapUsed: 0, swapTotal: 4_000_000_000,
-                                       cached: nil, pressure: nil)
+                                       cached: nil)
 
         XCTAssertEqual(evaluate(memory: full).score, 100)
     }
