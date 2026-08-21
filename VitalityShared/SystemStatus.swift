@@ -85,6 +85,22 @@ struct SystemStatus: Codable {
         let isOnAC: Bool?
     }
 
+    /// Throughput over the machine's physical links, plus what has crossed them
+    /// since Vitality launched.
+    ///
+    /// The rates are optional even on a working Mac: the first poll after launch
+    /// has no earlier counters to subtract, and a rate needs two readings.
+    struct Network: Codable {
+        let downBytesPerSec: Double?
+        let upBytesPerSec: Double?
+        /// Bytes since app launch, not since boot — the counters the kernel
+        /// keeps are per-interface and reset with the link.
+        let sessionDownBytes: Int64?
+        let sessionUpBytes: Int64?
+        /// The busiest link this sample, e.g. "en0".
+        let interface: String?
+    }
+
     /// Die and component temperatures, in Celsius.
     ///
     /// Every field is optional: a Mac that exposes no sensors gets no thermal
@@ -145,6 +161,7 @@ struct SystemStatus: Codable {
     let memory: Memory?
     let disks: [Disk]?
     let power: Power?
+    let network: Network?
     let batteries: [Battery]?
     let topProcesses: [TopProcess]?
     let thermal: Thermal?

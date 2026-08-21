@@ -8,11 +8,11 @@ Almost all of it goes through documented macOS APIs. The exception is temperatur
 
 ## What it does
 
-**Live figures in the menu bar** — pick which readings sit next to the Vitality icon and watch them update every second: CPU, CPU temperature, GPU, GPU temperature, memory, disk, power draw, power in, battery, health. `Menu bar…` in the popover chooses them, with a live preview of the result.
+**Live figures in the menu bar** — pick which readings sit next to the Vitality icon and watch them update every second: CPU, CPU temperature, GPU, GPU temperature, memory, disk, power draw, power in, network down, network up, battery, health. `Menu bar…` in the popover chooses them, with a live preview of the result.
 
 | Option | What it does |
 |---|---|
-| Show | Which of the ten metrics appear, in a fixed order so the strip never reshuffles |
+| Show | Which of the twelve metrics appear, in a fixed order so the strip never reshuffles |
 | Colour | `When it matters` (default — plain until a reading goes orange or red), `Always`, or `Never` |
 | Labels | The `CPU` / `GPU°` / `RAM` tags before each number |
 | Graph | A 40-second sparkline on everything that moves — usage, temperatures and wattage |
@@ -32,12 +32,15 @@ Each reading reserves room for its widest possible value, so a Mac going from 9%
 | Power / Battery | What the Mac is drawing, what is coming in over the cable, what the difference is going to, plus battery health, max capacity and cycle count |
 | Top process | The heaviest processes with PID and memory |
 
-**Dashboard** (`Open Dashboard…`) — four tabs:
+**Dashboard** (`Open Dashboard…`) — a sidebar of seven sections:
 
-- **Overview** — health ring, machine summary, uptime, and the key metrics
-- **Processes** — the full process table, filterable and sortable by CPU, memory or name. Quit or Force Quit anything you own.
-- **Storage** — every volume, plus a size-sorted folder browser you can drill into. Reveal in Finder, or move items to the Trash.
+- **Overview** — health ring, active alerts, and CPU/GPU/memory/disk charts over the last hour, day or week, with average and true peak. History persists across relaunches (`~/Library/Application Support/Vitality/history.json`).
+- **Activity** — the full process table, filterable and sortable by CPU, memory or name. Quit or Force Quit anything you own.
+- **Network** — live download/upload, session totals, and throughput history per range. Measured across the Mac's physical interfaces via `getifaddrs`.
+- **Storage** — every volume, a size-sorted folder browser you can drill into, exact-duplicate finder, and **Free up**: reclaim Xcode DerivedData, app caches and stale downloads — always via the Trash.
+- **Battery** — charge, condition, max capacity and cycles, plus a capacity-over-time chart built from one health sample per day.
 - **Sensors** — every temperature sensor the Mac reports, grouped by what it measures, with the raw SMC key beside each reading
+- **Alerts** — native notifications with hysteresis: disk almost full, sustained CPU, heavy swapping, high temperature, low battery. Sustained conditions must hold before firing, alerts renotify at most every 6 hours, and each rule can be toggled or snoozed.
 
 **Widgets** — small, medium and large, in Notification Centre and on the desktop.
 
@@ -173,6 +176,7 @@ Everything comes from public macOS APIs:
 | Disk | `URLResourceValues` volume capacities |
 | GPU | IOKit `IOAccelerator` → `PerformanceStatistics` |
 | Battery, cycles, health | IOKit `IOPowerSources` + `AppleSmartBattery` |
+| Network throughput | `getifaddrs` interface counter deltas |
 | Processes | `ps` + `kill(2)` |
 | Model, chip, uptime | IOKit device tree, `sysctl` |
 

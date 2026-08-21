@@ -4,6 +4,7 @@ import SwiftUI
 private enum StorageMode: String, CaseIterable, Identifiable {
     case volumes = "Volumes"
     case duplicates = "Duplicates"
+    case cleanup = "Free up"
 
     var id: String { rawValue }
 }
@@ -37,12 +38,15 @@ struct StorageView: View {
             .pickerStyle(.segmented)
             .frame(maxWidth: 300)
 
-            if mode == .volumes {
+            switch mode {
+            case .volumes:
                 volumes
                 Divider()
                 browser
-            } else {
+            case .duplicates:
                 DuplicateFilesView()
+            case .cleanup:
+                CleanupView()
             }
         }
         .confirmationDialog(
@@ -294,6 +298,191 @@ struct StorageView: View {
             entries.removeAll { $0.id == entry.id }
         case .failure(let error):
             actionError = error.message
+        }
+    }
+}
+
+// MARK: - Cleanup
+
+/// The "free up space" flow: scan four known reclaimable categories, let the
+/// user pick, move to Trash. Nothing is deleted outright, and the Trash itself
+/// is only ever opened — emptying it stays Finder's job.
+struct CleanupView: View {
+    @State private var categories: [CleanupCategory] = []
+    @State private var selected: Set<String> = []
+    @State private var isScanning = false
+    @State private var didScan = false
+    @State private var confirmClean = false
+    @State private var resultMessage: String?
+    @State private var actionError: String?
+
+    private var selectedCategories: [CleanupCategory] {
+        categories.filter { $0.kind == .trashable && selected.contains($0.id) }
+    }
+
+    private var selectedBytes: Int64 {
+        selectedCategories.reduce(0) { $0 + $1.bytes }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Free up space")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Button(isScanning ? "Scanning…" : "Scan") { scan() }
+                    .disabled(isScanning)
+            }
+
+            Text("Everything goes to the Trash first, so it can be put back.")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+
+            if isScanning {
+                VStack(spacing: 7) {
+                    ProgressView()
+                    Text("Measuring caches, DerivedData and old downloads…")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 200)
+            } else if !didScan {
+                VStack(spacing: 7) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 24)).foregroundStyle(.tertiary)
+                    Text("Scan to see what can be reclaimed.")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .frame(maxWidth: .infinity, minHeight: 200)
+            } else if categories.isEmpty {
+                VStack(spacing: 7) {
+                    Image(systemName: "checkmark.circle")
+                        .font(.system(size: 24)).foregroundStyle(.tertiary)
+                    Text("Nothing worth reclaiming — this Mac is already tidy.")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .frame(maxWidth: .infinity, minHeight: 200)
+            } else {
+                list
+                footer
+            }
+
+            if let resultMessage {
+                Label(resultMessage, systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.green)
+            }
+        }
+        .confirmationDialog(
+            "Move \(Fmt.bytes(selectedBytes)) to the Trash?",
+            isPresented: $confirmClean,
+            titleVisibility: .visible
+        ) {
+            Button("Move to Trash", role: .destructive) { clean() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Apps rebuild their caches as needed. Nothing is deleted permanently — restore anything from the Trash.")
+        }
+        .alert("Couldn't complete that",
+               isPresented: Binding(get: { actionError != nil },
+                                    set: { if !$0 { actionError = nil } })) {
+            Button("OK", role: .cancel) { actionError = nil }
+        } message: {
+            Text(actionError ?? "")
+        }
+    }
+
+    private var list: some View {
+        VStack(spacing: 0) {
+            ForEach(categories) { category in
+                HStack(spacing: 10) {
+                    if category.kind == .trashable {
+                        Toggle("", isOn: Binding(
+                            get: { selected.contains(category.id) },
+                            set: { isOn in
+                                if isOn { selected.insert(category.id) }
+                                else { selected.remove(category.id) }
+                            }
+                        ))
+                        .labelsHidden()
+                    } else {
+                        Spacer().frame(width: 16)
+                    }
+
+                    Image(systemName: category.icon)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18)
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(category.label).font(.system(size: 12, weight: .medium))
+                        Text("\(category.itemCount) item\(category.itemCount == 1 ? "" : "s")")
+                            .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    }
+
+                    Spacer()
+
+                    Text(Fmt.bytes(category.bytes))
+                        .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(.secondary)
+
+                    if category.kind == .trashBin {
+                        Button("Open") { DiskAnalyzer.openTrash() }
+                            .controlSize(.small)
+                            .help("Emptying the Trash is irreversible, so Vitality hands that to Finder.")
+                    }
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                if category.id != categories.last?.id {
+                    Divider().padding(.leading, 44)
+                }
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.04)))
+    }
+
+    private var footer: some View {
+        HStack {
+            Text(selectedCategories.isEmpty
+                 ? "Select categories to reclaim."
+                 : "\(Fmt.bytes(selectedBytes)) selected")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("Move to Trash…") { confirmClean = true }
+                .disabled(selectedCategories.isEmpty)
+        }
+    }
+
+    private func scan() {
+        isScanning = true
+        didScan = true
+        resultMessage = nil
+        Task.detached(priority: .userInitiated) {
+            let found = CleanupScanner.scan()
+            await MainActor.run {
+                isScanning = false
+                categories = found
+                selected = []
+            }
+        }
+    }
+
+    private func clean() {
+        let targets = selectedCategories
+        isScanning = true
+        Task.detached(priority: .userInitiated) {
+            let result = CleanupScanner.clean(targets)
+            let rescanned = CleanupScanner.scan()
+            await MainActor.run {
+                isScanning = false
+                categories = rescanned
+                selected = []
+                switch result {
+                case .success(let bytes):
+                    resultMessage = "Freed \(Fmt.bytes(bytes)) — it's in the Trash if you need it back."
+                case .failure(let error):
+                    actionError = error.message
+                }
+            }
         }
     }
 }

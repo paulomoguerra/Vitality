@@ -7,7 +7,7 @@ import SwiftUI
 /// interaction that buys nothing, and a fixed order means the strip never
 /// ends up in a layout nobody chose.
 enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
-    case cpu, cpuTemp, gpu, gpuTemp, memory, disk, power, powerIn, battery, health
+    case cpu, cpuTemp, gpu, gpuTemp, memory, disk, power, powerIn, netDown, netUp, battery, health
 
     var id: String { rawValue }
 
@@ -22,6 +22,8 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
         case .disk:     return "Disk"
         case .power:    return "Power draw"
         case .powerIn:  return "Power in"
+        case .netDown:  return "Network down"
+        case .netUp:    return "Network up"
         case .battery:  return "Battery"
         case .health:   return "Health"
         }
@@ -30,6 +32,10 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
     /// The tag shown in the menu bar itself. Deliberately letters, not a glyph:
     /// at 9pt, `cpu` and `cpu.fill` are a coin toss, and a bare number with no
     /// tag at all is worse still. "CPU" is never ambiguous.
+    ///
+    /// The two arrows are the exception that proves it: a direction is what an
+    /// arrow means at any size, and "DOWN"/"UP" beside a rate would be read as
+    /// the link being down rather than as traffic inbound.
     var shortLabel: String {
         switch self {
         case .cpu:      return "CPU"
@@ -40,6 +46,8 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
         case .disk:     return "SSD"
         case .power:    return "PWR"
         case .powerIn:  return "IN"
+        case .netDown:  return "↓"
+        case .netUp:    return "↑"
         case .battery:  return "BAT"
         case .health:   return "HLTH"
         }
@@ -57,6 +65,8 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
         case .disk:     return "internaldrive"
         case .power:    return "bolt.fill"
         case .powerIn:  return "powerplug.fill"
+        case .netDown:  return "arrow.down.circle"
+        case .netUp:    return "arrow.up.circle"
         case .battery:  return "battery.100"
         case .health:   return "heart.fill"
         }
@@ -68,6 +78,10 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
     var widestValue: String {
         switch self {
         case .power, .powerIn:   return "88.8 W"
+        // Three digits, not two: gigabit Ethernet and Wi-Fi 6 sit above
+        // 100 MB/s routinely, and one extra digit would shove the whole
+        // menu bar sideways at exactly the moment the number is interesting.
+        case .netDown, .netUp:   return "888.8 MB/s"
         case .health:            return "100"
         case .cpuTemp, .gpuTemp: return "100°"
         default:                 return "100%"
@@ -81,8 +95,9 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
     /// for them would be decoration pretending to be information.
     var isGraphable: Bool {
         switch self {
-        case .cpu, .gpu, .memory, .power, .powerIn, .cpuTemp, .gpuTemp: return true
-        case .disk, .battery, .health:                                  return false
+        case .cpu, .gpu, .memory, .power, .powerIn, .cpuTemp, .gpuTemp,
+             .netDown, .netUp:          return true
+        case .disk, .battery, .health:  return false
         }
     }
 
@@ -127,6 +142,14 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
         case .powerIn:
             let watts = status?.power?.inputWatts
             return Reading(text: Fmt.watts(watts), sample: watts, scale: .relative, level: nil)
+
+        case .netDown:
+            let rate = status?.network?.downBytesPerSec
+            return Reading(text: Fmt.rate(rate), sample: rate, scale: .relative, level: nil)
+
+        case .netUp:
+            let rate = status?.network?.upBytesPerSec
+            return Reading(text: Fmt.rate(rate), sample: rate, scale: .relative, level: nil)
 
         case .cpuTemp:
             return temperature(status?.thermal?.cpu)

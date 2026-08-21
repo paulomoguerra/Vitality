@@ -27,6 +27,7 @@ final class SystemMetrics {
     private var previousCPUTicks: [[UInt32]]?
     private let thermalMonitor = ThermalMonitor()
     private let gpuMonitor = GPUMonitor()
+    private let networkMonitor = NetworkMonitor()
     private let hardwareProvider = HardwareMetricsProvider()
     private let volumeProvider = VolumeMetricsProvider()
     private let batteryProvider = BatteryMetricsProvider()
@@ -62,6 +63,10 @@ final class SystemMetrics {
             memory: memory,
             disks: disks,
             power: power,
+            // Sampled every poll rather than cached: `getifaddrs` is a cheap
+            // kernel read, and a rate stops being a rate the moment its
+            // interval stops matching the poll.
+            network: networkMonitor.sample(),
             batteries: batterySnapshot.battery.map { [$0] } ?? [],
             topProcesses: processes.top,
             thermal: thermal,

@@ -11,6 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var history: MenuBarHistory!
     private var popover: NSPopover!
     private var poller: StatusPoller!
+    private var metricsHistory: MetricsHistoryStore!
+    private var alerts: AlertCenter!
     private var dashboard: DashboardWindowController!
     private var eventMonitor: Any?
     private var launchAtLoginObservation: AnyCancellable?
@@ -25,7 +27,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LoginItem.apply(enabled: settings.launchAtLogin)
 
         poller = StatusPoller()
-        dashboard = DashboardWindowController(poller: poller)
+        // Both live for the whole session, not the dashboard window's: history
+        // accrues and alerts watch (and notify) whether or not any UI is open.
+        metricsHistory = MetricsHistoryStore(poller: poller)
+        alerts = AlertCenter(poller: poller)
+        dashboard = DashboardWindowController(poller: poller,
+                                              history: metricsHistory,
+                                              alerts: alerts)
 
         history = MenuBarHistory(poller: poller, settings: settings)
         menuBar = MenuBarStatusItemController(poller: poller, settings: settings, history: history)
@@ -53,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         removeEventMonitor()
+        metricsHistory.flush()
     }
 
     /// Backstop for `.transient`, which doesn't always close a status-item

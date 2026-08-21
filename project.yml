@@ -63,6 +63,8 @@ targets:
       - path: VitalityTests
       - path: Vitality/DuplicateAnalyzer.swift
       - path: Vitality/HealthScore.swift
+      - path: Vitality/CleanupScanner.swift
+      - path: Vitality/HistoryTier.swift
       - path: Vitality/ActionError.swift
       - path: VitalityShared/SystemStatus.swift
     settings:

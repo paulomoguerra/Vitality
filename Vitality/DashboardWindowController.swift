@@ -12,14 +12,13 @@ final class DashboardWindowController {
     private var window: NSWindow?
     private var closeObserver: NSObjectProtocol?
     private let poller: StatusPoller
-    /// Owned here, not by the view tree: recording a snapshot a second costs
-    /// nothing, and it means the overview charts are already populated when the
-    /// window opens — including a reopen after the window was torn down.
-    private let history: DashboardHistory
+    private let history: MetricsHistoryStore
+    private let alerts: AlertCenter
 
-    init(poller: StatusPoller) {
+    init(poller: StatusPoller, history: MetricsHistoryStore, alerts: AlertCenter) {
         self.poller = poller
-        self.history = DashboardHistory(poller: poller)
+        self.history = history
+        self.alerts = alerts
     }
 
     func show() {
@@ -29,7 +28,8 @@ final class DashboardWindowController {
             return
         }
 
-        let hosting = NSHostingController(rootView: DashboardView(poller: poller, history: history))
+        let hosting = NSHostingController(
+            rootView: DashboardView(poller: poller, history: history, alerts: alerts))
         let window = NSWindow(contentViewController: hosting)
         window.title = "Vitality"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]

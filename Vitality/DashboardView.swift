@@ -1,82 +1,101 @@
 import SwiftUI
 
-enum DashboardTab: String, CaseIterable, Identifiable {
+/// The dashboard's sections. A sidebar rather than a TabView: four tabs was
+/// already crowded, and Network, Battery and Alerts would have made it seven.
+enum DashboardSection: String, CaseIterable, Identifiable {
     case overview = "Overview"
-    case processes = "Activity"
+    case activity = "Activity"
+    case network = "Network"
     case storage = "Storage"
-    case sensors = "Hardware"
+    case battery = "Battery"
+    case sensors = "Sensors"
+    case alerts = "Alerts"
 
     var id: String { rawValue }
 
     var icon: String {
         switch self {
-        case .overview:  return "gauge.medium"
-        case .processes: return "list.bullet.rectangle"
-        case .storage:   return "internaldrive"
-        case .sensors:   return "thermometer.medium"
+        case .overview: return "gauge.medium"
+        case .activity: return "list.bullet.rectangle"
+        case .network:  return "arrow.up.arrow.down"
+        case .storage:  return "internaldrive"
+        case .battery:  return "battery.75percent"
+        case .sensors:  return "thermometer.medium"
+        case .alerts:   return "bell.badge"
         }
     }
 }
 
 struct DashboardView: View {
     @ObservedObject var poller: StatusPoller
-    let history: DashboardHistory
-    @State private var tab: DashboardTab = .overview
+    let history: MetricsHistoryStore
+    @ObservedObject var alerts: AlertCenter
+    @State private var section: DashboardSection = .overview
 
     var body: some View {
-        TabView(selection: $tab) {
-            OverviewView(poller: poller, history: history) { tab = $0 }
-                .tabItem { Label(DashboardTab.overview.rawValue,
-                                 systemImage: DashboardTab.overview.icon) }
-                .tag(DashboardTab.overview)
-
-            ProcessesView()
-                .tabItem { Label(DashboardTab.processes.rawValue,
-                                 systemImage: DashboardTab.processes.icon) }
-                .tag(DashboardTab.processes)
-
-            StorageView(poller: poller)
-                .tabItem { Label(DashboardTab.storage.rawValue,
-                                 systemImage: DashboardTab.storage.icon) }
-                .tag(DashboardTab.storage)
-
-            SensorsView(poller: poller)
-                .tabItem { Label(DashboardTab.sensors.rawValue,
-                                 systemImage: DashboardTab.sensors.icon) }
-                .tag(DashboardTab.sensors)
+        NavigationSplitView {
+            List(selection: $section) {
+                Section {
+                    ForEach([DashboardSection.overview, .activity, .network,
+                             .storage, .battery, .sensors]) { section in
+                        Label(section.rawValue, systemImage: section.icon).tag(section)
+                    }
+                }
+                Section("Settings") {
+                    Label {
+                        Text(DashboardSection.alerts.rawValue)
+                    } icon: {
+                        Image(systemName: DashboardSection.alerts.icon)
+                    }
+                    .badge(alerts.active.count)
+                    .tag(DashboardSection.alerts)
+                }
+            }
+            .navigationSplitViewColumnWidth(min: 170, ideal: 185, max: 220)
+        } detail: {
+            Group {
+                switch section {
+                case .overview:
+                    OverviewPane(poller: poller, history: history, alerts: alerts,
+                                 openSection: { section = $0 })
+                case .activity: ProcessesView()
+                case .network:  NetworkPane(poller: poller, history: history)
+                case .storage:  StorageView(poller: poller)
+                case .battery:  BatteryPane(poller: poller, history: history)
+                case .sensors:  SensorsView(poller: poller)
+                case .alerts:   AlertsPane(alerts: alerts)
+                }
+            }
+            .padding(14)
+            .frame(minWidth: 560)
         }
-        .padding(14)
-        .frame(minWidth: 620, minHeight: 460)
+        .frame(minWidth: 780, minHeight: 520)
     }
 }
 
 // MARK: - Overview
 
-struct OverviewView: View {
+struct OverviewPane: View {
     @ObservedObject var poller: StatusPoller
-    @ObservedObject var history: DashboardHistory
-    let openTab: (DashboardTab) -> Void
+    @ObservedObject var history: MetricsHistoryStore
+    @ObservedObject var alerts: AlertCenter
+    let openSection: (DashboardSection) -> Void
 
-    init(poller: StatusPoller,
-         history: DashboardHistory,
-         openTab: @escaping (DashboardTab) -> Void = { _ in }) {
-        self.poller = poller
-        self.history = history
-        self.openTab = openTab
-    }
+    @State private var range: HistoryRange = .day
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 if let status = poller.latest {
+                    HStack {
+                        Text("Overview").font(.system(size: 15, weight: .semibold))
+                        Spacer()
+                        RangePicker(range: $range)
+                    }
                     statusHeader(status)
-                    insights(status)
+                    alertList
                     metrics(status)
                     activity(status)
-                } else if let error = poller.lastError {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                        .padding()
                 } else {
                     ProgressView().frame(maxWidth: .infinity).padding(40)
                 }
@@ -86,7 +105,7 @@ struct OverviewView: View {
     }
 
     private func statusHeader(_ status: SystemStatus) -> some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 16) {
             ZStack {
                 HealthRing(score: status.healthScore, lineWidth: 7)
                 VStack(spacing: 0) {
@@ -102,26 +121,43 @@ struct OverviewView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(statusTitle(status))
                     .font(.system(size: 16, weight: .semibold))
-                Text(status.hardware?.model ?? status.host ?? "This Mac")
+                Text(status.healthScoreMsg ?? "Limited data")
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                Text([status.hardware?.chip,
+                    .foregroundStyle(Severity.forHealth(status.healthScore))
+                Text([status.hardware?.model ?? status.host,
+                      status.hardware?.chip,
                       status.hardware?.totalRAM.map { Fmt.bytes($0) },
                       status.hardware?.osVersion]
-                        .compactMap { $0 }.joined(separator: " · "))
+                        .compactMap { $0 }.joined(separator: " · ")
+                     + " · up \(status.uptime ?? "—")")
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
-                Text("Updated " + Fmt.relativeTime(from: status.collectedAt) + " · " + (status.healthScoreMsg ?? "Limited data"))
-                    .font(.system(size: 10))
-                    .foregroundStyle(Severity.forHealth(status.healthScore))
             }
-            Spacer(minLength: 0)
+
+            Spacer(minLength: 12)
+
+            // The three questions a glance actually asks: how busy, how thirsty,
+            // how full.
+            HStack(spacing: 8) {
+                quickChip(Fmt.percent(status.cpu?.usage), "CPU now")
+                quickChip(Fmt.watts(status.headlinePower), "power")
+                quickChip(Fmt.bytes(status.primaryDisk?.free), "disk free")
+            }
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 12)
             .fill(status.healthScore == nil
                   ? Color.primary.opacity(0.04)
                   : Severity.forHealth(status.healthScore).opacity(0.08)))
+    }
+
+    private func quickChip(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .trailing, spacing: 1) {
+            Text(value).font(.system(size: 14, weight: .semibold).monospacedDigit())
+            Text(label).font(.system(size: 9)).foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 11).padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.05)))
     }
 
     private func statusTitle(_ status: SystemStatus) -> String {
@@ -134,15 +170,30 @@ struct OverviewView: View {
         }
     }
 
-    private func insights(_ status: SystemStatus) -> some View {
-        let items = OverviewInsights.evaluate(status: status, history: history)
-        return VStack(alignment: .leading, spacing: 7) {
-            Text("What needs attention?")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-            ForEach(items) { insight in
-                OverviewInsightRow(insight: insight) {
-                    if let tab = insight.actionTab { openTab(tab) }
+    @ViewBuilder
+    private var alertList: some View {
+        if alerts.active.isEmpty {
+            HStack(spacing: 9) {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                Text("No action needed — everything is within normal range.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color.green.opacity(0.06)))
+        } else {
+            VStack(spacing: 7) {
+                ForEach(alerts.active) { alert in
+                    AlertCard(alert: alert) {
+                        switch alert.action {
+                        case .openStorage:  openSection(.storage)
+                        case .openActivity: openSection(.activity)
+                        case .openSensors:  openSection(.sensors)
+                        case .none:         break
+                        }
+                    } snooze: {
+                        alerts.snooze(alert.id)
+                    }
                 }
             }
         }
@@ -150,32 +201,44 @@ struct OverviewView: View {
 
     private func metrics(_ status: SystemStatus) -> some View {
         LazyVGrid(columns: [
-            GridItem(.flexible(), spacing: 12, alignment: .leading),
-            GridItem(.flexible(), spacing: 12, alignment: .leading),
+            GridItem(.flexible(), spacing: 12, alignment: .top),
+            GridItem(.flexible(), spacing: 12, alignment: .top),
         ], spacing: 12) {
-            OverviewMetricCard(
-                label: "CPU", value: Fmt.percent(status.cpu?.usage, decimals: 1),
-                detail: "Load " + Fmt.load(status.cpu?.load1) + " · " + (status.cpu?.coreCount.map(String.init) ?? "—") + " cores",
-                values: history.values(\.cpu), scale: .percent, tint: .blue
-            ) { openTab(.processes) }
+            HistoryChartCard(
+                label: "CPU",
+                currentText: Fmt.percent(status.cpu?.usage, decimals: 1),
+                subtitle: "\(status.cpu?.coreCount.map(String.init) ?? "—") cores · load \(Fmt.load(status.cpu?.load1))",
+                points: history.series(.cpu, range: range),
+                scale: .percent, tint: .blue,
+                stats: history.stats(.cpu, range: range)
+            ) { openSection(.activity) }
 
-            OverviewMetricCard(
-                label: "GPU", value: Fmt.percent(status.gpu?.utilization, decimals: 1),
-                detail: status.gpu?.inUseMemory.map { Fmt.bytes($0) + " in use" } ?? "No GPU data",
-                values: history.values(\.gpu), scale: .percent, tint: .purple
-            ) { openTab(.sensors) }
+            HistoryChartCard(
+                label: "GPU",
+                currentText: Fmt.percent(status.gpu?.utilization, decimals: 1),
+                subtitle: status.gpu?.inUseMemory.map { Fmt.bytes($0) + " in use" } ?? "No GPU data",
+                points: history.series(.gpu, range: range),
+                scale: .percent, tint: .orange,
+                stats: history.stats(.gpu, range: range)
+            ) { openSection(.sensors) }
 
-            OverviewMetricCard(
-                label: "Memory", value: Fmt.percent(status.memory?.usedPercent, decimals: 1),
-                detail: Fmt.bytes(status.memory?.used) + " of " + Fmt.bytes(status.memory?.total),
-                values: history.values(\.memory), scale: .percent, tint: .teal
-            ) { openTab(.processes) }
+            HistoryChartCard(
+                label: "Memory",
+                currentText: Fmt.percent(status.memory?.usedPercent, decimals: 1),
+                subtitle: Fmt.bytes(status.memory?.used) + " of " + Fmt.bytes(status.memory?.total),
+                points: history.series(.memory, range: range),
+                scale: .percent, tint: .teal,
+                stats: history.stats(.memory, range: range)
+            ) { openSection(.activity) }
 
-            OverviewMetricCard(
-                label: "Disk", value: Fmt.percent(status.primaryDisk?.usedPercent),
-                detail: Fmt.bytes(status.primaryDisk?.free) + " free",
-                values: history.values(\.disk), scale: .percent, tint: .orange
-            ) { openTab(.storage) }
+            HistoryChartCard(
+                label: "Disk",
+                currentText: Fmt.percent(status.primaryDisk?.usedPercent),
+                subtitle: Fmt.bytes(status.primaryDisk?.free) + " free",
+                points: history.series(.disk, range: range),
+                scale: .percent, tint: .yellow,
+                stats: history.stats(.disk, range: range)
+            ) { openSection(.storage) }
         }
     }
 
@@ -186,7 +249,7 @@ struct OverviewView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("Open Activity") { openTab(.processes) }
+                Button("Open Activity") { openSection(.activity) }
                     .buttonStyle(.link)
                     .font(.system(size: 11))
             }
@@ -217,5 +280,45 @@ struct OverviewView: View {
         .padding(13)
         .background(RoundedRectangle(cornerRadius: 12)
             .fill(Color.primary.opacity(0.04)))
+    }
+}
+
+/// One firing alert, with its action and a snooze affordance.
+struct AlertCard: View {
+    let alert: ActiveAlert
+    let action: () -> Void
+    let snooze: () -> Void
+
+    var body: some View {
+        HStack(spacing: 11) {
+            Image(systemName: alert.severity == .critical
+                  ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(alert.severity.color)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(alert.title).font(.system(size: 12, weight: .semibold))
+                Text(alert.detail)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 8)
+
+            if let label = alert.actionLabel {
+                Button(label, action: action)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+            Button("Snooze", action: snooze)
+                .buttonStyle(.plain)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.tertiary)
+                .help("Hide this alert and its notifications for 6 hours")
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 9)
+            .fill(alert.severity.color.opacity(0.08)))
     }
 }

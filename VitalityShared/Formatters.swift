@@ -19,6 +19,21 @@ enum Fmt {
         return byteFormatter.string(fromByteCount: value)
     }
 
+    /// Throughput, on the same units as `bytes` so a rate and a total read as
+    /// the same kind of number.
+    ///
+    /// Below a kilobyte a second the exact figure is noise — a chip flickering
+    /// between "312 bytes/s" and "0 bytes/s" reads as broken rather than idle —
+    /// so everything under that floor is shown as idle.
+    static func rate(_ bytesPerSec: Double?) -> String {
+        guard let bytesPerSec, bytesPerSec >= 1_000 else {
+            return bytesPerSec == nil ? "—" : "0 KB/s"
+        }
+        // Clamped because converting a Double past Int64's range traps, and a
+        // division by a near-zero interval must never be able to crash the app.
+        return byteFormatter.string(fromByteCount: Int64(min(bytesPerSec, 1e15))) + "/s"
+    }
+
     static func percent(_ value: Double?, decimals: Int = 0) -> String {
         guard let value else { return "—" }
         return String(format: "%.\(decimals)f%%", value)
