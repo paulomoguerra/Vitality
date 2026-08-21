@@ -27,7 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         poller = StatusPoller()
         dashboard = DashboardWindowController(poller: poller)
 
-        history = MenuBarHistory(poller: poller)
+        history = MenuBarHistory(poller: poller, settings: settings)
         menuBar = MenuBarStatusItemController(poller: poller, settings: settings, history: history)
         if let button = menuBar.button {
             button.action = #selector(togglePopover(_:))
