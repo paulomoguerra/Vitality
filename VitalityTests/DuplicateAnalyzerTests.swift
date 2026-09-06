@@ -37,7 +37,7 @@ final class DuplicateAnalyzerTests: XCTestCase {
     private func scan() throws -> [DuplicateGroup] {
         switch DuplicateAnalyzer.scan(path: root.path) {
         case .success(let groups): return groups
-        case .failure(let error):  throw XCTSkip("scan failed: \(error.message)")
+        case .failure(let error):  throw error
         }
     }
 
@@ -174,5 +174,107 @@ final class DuplicateAnalyzerTests: XCTestCase {
         guard case .failure = DuplicateAnalyzer.scan(path: missing) else {
             return XCTFail("a folder that doesn't exist is an error, not zero duplicates")
         }
+    }
+
+    /// The counterpart: an empty folder is a successful scan that found
+    /// nothing, not a missing-folder error.
+    func testEmptyFolderIsASuccessfulScanWithNoGroups() throws {
+        let groups = try scan()
+
+        XCTAssertTrue(groups.isEmpty)
+    }
+
+    /// Hidden files are skipped on purpose — `.DS_Store` copies and
+    /// editor swap files would otherwise show up as "duplicates".
+    func testIgnoresHiddenFiles() throws {
+        let body = Array("same".utf8)
+        try write(".hidden-a", body)
+        try write(".hidden-b", body)
+        try write("visible.txt", body)
+
+        XCTAssertTrue(try scan().isEmpty)
+    }
+
+    /// Files that fit in the prefix are settled there and never read again.
+    func testIdenticalFilesExactlyAtThePrefixSizeAreDuplicates() throws {
+        let body = [UInt8](repeating: 0x33, count: prefixSize)
+        try write("edge-a.bin", body)
+        try write("edge-b.bin", body)
+
+        let groups = try scan()
+
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(names(groups[0]), ["edge-a.bin", "edge-b.bin"])
+    }
+
+    func testMovesAFileIntoAnotherFolder() throws {
+        let source = try write("note.txt", Array("hello".utf8))
+        let destination = root.appendingPathComponent("kept")
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        let file = DuplicateFile(path: source.path, name: "note.txt", size: 5, modified: nil)
+
+        guard case .success(let url) = DuplicateAnalyzer.move(file, to: destination) else {
+            return XCTFail("moving into an empty folder should succeed")
+        }
+
+        XCTAssertEqual(url.lastPathComponent, "note.txt")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    func testRenamesWhenTheDestinationAlreadyHasThatName() throws {
+        let source = try write("note.txt", Array("hello".utf8))
+        let destination = root.appendingPathComponent("kept")
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        try Data("taken".utf8).write(to: destination.appendingPathComponent("note.txt"))
+        let file = DuplicateFile(path: source.path, name: "note.txt", size: 5, modified: nil)
+
+        guard case .success(let url) = DuplicateAnalyzer.move(file, to: destination) else {
+            return XCTFail("a name collision should rename, not fail")
+        }
+
+        XCTAssertEqual(url.lastPathComponent, "note 2.txt")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: destination.appendingPathComponent("note.txt").path),
+                       "the file that was already there stays put")
+    }
+
+    func testRefusesToMoveAFileOntoItself() throws {
+        let source = try write("note.txt", Array("hello".utf8))
+        let file = DuplicateFile(path: source.path, name: "note.txt", size: 5, modified: nil)
+
+        guard case .failure(let error) = DuplicateAnalyzer.move(file, to: root) else {
+            return XCTFail("moving a file into the folder it already lives in is not a move")
+        }
+        XCTAssertTrue(error.message.localizedCaseInsensitiveContains("already"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
+    }
+
+    func testSymlinkAndTargetAreNotADuplicateGroup() throws {
+        let original = try write("real.txt", Array("hello vitality".utf8))
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("link.txt"),
+            withDestinationURL: original
+        )
+
+        XCTAssertTrue(try scan().isEmpty,
+                      "a symlink is not a second copy")
+    }
+
+    func testOlderCopiesKeepsTheNewestFile() {
+        let older = DuplicateFile(path: "/a/old.bin", name: "old.bin", size: 8,
+                                  modified: Date(timeIntervalSince1970: 1))
+        let newer = DuplicateFile(path: "/b/new.bin", name: "new.bin", size: 8,
+                                  modified: Date(timeIntervalSince1970: 2))
+        let group = DuplicateGroup(digest: "same", files: [older, newer])
+        XCTAssertEqual(group.olderCopies.map(\.path), ["/a/old.bin"])
+    }
+
+    func testOlderCopiesBreaksTiesOnPath() {
+        let date = Date(timeIntervalSince1970: 10)
+        let left = DuplicateFile(path: "/a", name: "a", size: 1, modified: date)
+        let right = DuplicateFile(path: "/b", name: "b", size: 1, modified: date)
+        let group = DuplicateGroup(digest: "tie", files: [left, right])
+        XCTAssertEqual(group.olderCopies.map(\.path), ["/a"])
     }
 }

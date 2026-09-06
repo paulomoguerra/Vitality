@@ -15,7 +15,7 @@ enum Fmt {
     /// numbers Vitality shows line up with what the user sees in Finder rather
     /// than disagreeing by ~7% the way binary (GiB) counting would.
     static func bytes(_ value: Int64?) -> String {
-        guard let value, value > 0 else { return "—" }
+        guard let value, value >= 0 else { return "—" }
         return byteFormatter.string(fromByteCount: value)
     }
 

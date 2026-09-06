@@ -18,12 +18,15 @@ struct MenuBarStrip: View {
     let status: SystemStatus?
     @ObservedObject var settings: MenuBarSettings
     let samples: (MenuBarMetric) -> [Double]
+    var alertLevel: Severity.Level? = nil
 
     var body: some View {
         HStack(spacing: 9) {
             if settings.showsAppIconEffective {
                 Image(systemName: "gauge.medium")
                     .font(.system(size: 14))
+                    .foregroundStyle(alertLevel?.color ?? Severity.forHealth(status?.healthScore))
+                    .accessibilityHidden(true)
             }
 
             ForEach(settings.displayedMetrics) { metric in

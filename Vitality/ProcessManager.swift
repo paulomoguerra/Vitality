@@ -116,6 +116,15 @@ enum ProcessManager {
         if !force,
            let application = NSRunningApplication(processIdentifier: pid),
            application.activationPolicy != .prohibited {
+            // Recheck after the AppKit lookup. terminate() otherwise trusts
+            // whatever now owns this PID if the first snapshot is stale.
+            guard application.processIdentifier == pid,
+                  let current = processSnapshot(for: pid),
+                  current.startTime == expectedStartTime,
+                  current.uid == process.uid
+            else {
+                return .failure(ActionError("That process changed or already exited. Refresh the table and try again."))
+            }
             // A graphical application gets the same save-and-quit request as
             // clicking Quit in its own UI. Fall back to SIGTERM for apps that
             // reject the request or for processes without an app object.

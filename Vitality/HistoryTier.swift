@@ -66,6 +66,15 @@ struct HistoryTier {
     mutating func add(value: Double, at date: Date) -> Bool {
         let start = bucketStart(for: date)
 
+        // After a restore there is no open bucket, so the backwards-clock
+        // guard below would not fire. A sample that lands in the last
+        // committed window — or earlier — must not open that window
+        // again: committing it would duplicate a point the charts already
+        // have, and an older one would draw a line flying back.
+        if openStart == nil, let last = committed.last, start <= last.date {
+            return false
+        }
+
         // Capacity alone is not enough of a window: the poller stops while the
         // Mac sleeps, so a lid opened in the morning would otherwise wake to a
         // "1 h" chart still holding yesterday evening — sixteen hours smeared

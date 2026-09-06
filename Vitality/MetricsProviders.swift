@@ -91,81 +91,52 @@ struct HardwareMetricsProvider {
     }
 }
 
-/// Reads mounted volumes and converts their resource values to dashboard disks.
-struct VolumeMetricsProvider {
-
-    private let resourceKeys: [URLResourceKey] = [
-        .volumeNameKey, .volumeTotalCapacityKey, .volumeAvailableCapacityKey,
-        .volumeIsInternalKey, .volumeIsRemovableKey, .volumeIsBrowsableKey,
-    ]
-
-    func sample() -> [SystemStatus.Disk] {
-        guard let volumes = FileManager.default.mountedVolumeURLs(
-            includingResourceValuesForKeys: resourceKeys, options: [.skipHiddenVolumes]
-        ) else { return [] }
-
-        return volumes.compactMap { url -> SystemStatus.Disk? in
-            guard let values = try? url.resourceValues(forKeys: Set(resourceKeys)) else {
-                return nil
-            }
-            return Self.disk(for: url, values: values)
-        }
-        .sorted { ($0.mount == "/" ? 0 : 1) < ($1.mount == "/" ? 0 : 1) }
-    }
-
-    /// Kept as a pure conversion boundary so volume filtering and arithmetic
-    /// can be tested without mounting or unmounting anything.
-    static func disk(for url: URL, values: URLResourceValues) -> SystemStatus.Disk? {
-        guard let total = values.volumeTotalCapacity, total > 0 else { return nil }
-
-        // Xcode's simulator runtimes mount as browsable volumes and are
-        // permanently near-full. They're Xcode's business, not the user's.
-        if url.path.contains("/CoreSimulator/Volumes/") { return nil }
-
-        let available = Int64(values.volumeAvailableCapacity ?? 0)
-        let capacity = Int64(total)
-        let used = max(0, capacity - available)
-
-        return SystemStatus.Disk(
-            mount: url.path,
-            name: values.volumeName,
-            used: used,
-            total: capacity,
-            usedPercent: Double(used) / Double(capacity) * 100,
-            isInternal: values.volumeIsInternal ?? true,
-            isRemovable: values.volumeIsRemovable ?? false
-        )
-    }
-}
-
 /// Reads the power-source registry and assembles battery/power snapshots.
 struct BatteryMetricsProvider {
 
     struct Snapshot {
         let battery: SystemStatus.Battery?
         let registry: [String: Any]?
+        let isOnAC: Bool?
     }
 
     func sample() -> Snapshot {
         guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let sources = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef]
-        else { return Snapshot(battery: nil, registry: nil) }
+        else { return Snapshot(battery: nil, registry: nil, isOnAC: nil) }
 
         // The registry lookup is comparatively expensive and is shared by the
         // battery and power snapshots for this cache period.
         let registry = smartBatteryProperties()
 
+        var battery: SystemStatus.Battery?
+        var internalOnAC: Bool?
+        var sawAC = false
+
         for source in sources {
             guard let description = IOPSGetPowerSourceDescription(blob, source)?
                 .takeUnretainedValue() as? [String: Any] else { continue }
+            if let present = description[kIOPSIsPresentKey] as? Bool, !present { continue }
+
+            let type = description[kIOPSTypeKey] as? String
+            let state = description[kIOPSPowerSourceStateKey] as? String
+            if state == kIOPSACPowerValue { sawAC = true }
+            if type == kIOPSInternalBatteryType {
+                if state == kIOPSACPowerValue { internalOnAC = true }
+                else if state == kIOPSBatteryPowerValue { internalOnAC = false }
+            }
+
+            // Accessories and UPS units appear in this list. Only the
+            // internal pack is the Mac's battery.
+            guard type == kIOPSInternalBatteryType, battery == nil else { continue }
 
             let current = description[kIOPSCurrentCapacityKey] as? Int
             let max = description[kIOPSMaxCapacityKey] as? Int
             let charging = description[kIOPSIsChargingKey] as? Bool ?? false
-            let onAC = (description[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
+            let onBatteryAC = state == kIOPSACPowerValue
 
             let minutes = description[kIOPSTimeToEmptyKey] as? Int ?? -1
-            let timeLeft = (!onAC && minutes > 0) ? "\(minutes / 60)h \(minutes % 60)m" : nil
+            let timeLeft = (!onBatteryAC && minutes > 0) ? "\(minutes / 60)h \(minutes % 60)m" : nil
 
             // These live inside a nested "BatteryData" dictionary. The
             // top-level "MaxCapacity" is a normalised figure that reads 100 on
@@ -179,19 +150,23 @@ struct BatteryMetricsProvider {
                 return Int((Double(nominalCapacity) / Double(designCapacity) * 100).rounded())
             }()
 
-            let battery = SystemStatus.Battery(
-                percent: (current != nil && max != nil && max! > 0)
-                    ? Int((Double(current!) / Double(max!) * 100).rounded()) : current,
-                status: onAC ? (charging ? "Charging" : "AC") : "Battery",
+            // Raw `current` without a max is often mAh, not a percent.
+            let percent: Int? = {
+                guard let current, let max, max > 0 else { return nil }
+                return Int((Double(current) / Double(max) * 100).rounded())
+            }()
+
+            battery = SystemStatus.Battery(
+                percent: percent,
+                status: onBatteryAC ? (charging ? "Charging" : "AC") : "Battery",
                 timeLeft: timeLeft,
                 health: description[kIOPSBatteryHealthKey] as? String,
                 cycleCount: registry?["CycleCount"] as? Int,
                 capacity: healthPercent
             )
-
-            return Snapshot(battery: battery, registry: registry)
         }
-        return Snapshot(battery: nil, registry: registry)
+        return Snapshot(battery: battery, registry: registry,
+                        isOnAC: internalOnAC ?? (sawAC ? true : nil))
     }
 
     /// Total draw and adapter input from the SMC, plus the battery's own flow.
@@ -199,9 +174,9 @@ struct BatteryMetricsProvider {
     /// The adapter *rating* and what it is actually delivering are different
     /// numbers, and both are worth having: a 70W charger always reports 70W,
     /// while `inputWatts` says whether 8W or 60W is crossing the cable.
-    func power(battery: SystemStatus.Battery?,
-               registry: [String: Any]?,
-               rails: (system: Double?, input: Double?)) -> SystemStatus.Power {
+    func power(registry: [String: Any]?,
+               rails: (system: Double?, input: Double?),
+               isOnAC: Bool?) -> SystemStatus.Power {
         let millivolts = registry?["Voltage"] as? Int ?? 0
         let milliamps = registry?["InstantAmperage"] as? Int
             ?? registry?["Amperage"] as? Int ?? 0
@@ -221,7 +196,7 @@ struct BatteryMetricsProvider {
             systemWatts: rails.system,
             inputWatts: rails.input,
             isCharging: (milliamps > 0) && adapterWatts != nil,
-            isOnAC: battery?.status != "Battery"
+            isOnAC: isOnAC
         )
     }
 

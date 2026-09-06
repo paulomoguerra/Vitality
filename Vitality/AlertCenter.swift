@@ -14,9 +14,8 @@ enum AlertRuleID: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-/// Where an alert can send you. `.none` is for alerts with nothing to open —
-/// a low battery is not a screen you can visit.
-enum AlertAction { case openStorage, openActivity, openSensors, none }
+/// Where an alert can send you.
+enum AlertAction { case openStorage, openActivity, openSensors, openPower, none }
 
 struct ActiveAlert: Identifiable {
     let id: AlertRuleID
@@ -66,6 +65,12 @@ final class AlertCenter: ObservableObject {
     /// this is off — the dashboard still shows them, they just stay quiet.
     @Published var notificationsEnabled: Bool { didSet { persistMaster() } }
 
+    /// The app delegate connects this to dashboard routing after the window
+    /// controller exists. Notification delivery remains useful without it.
+    var onOpenAlert: ((AlertRuleID) -> Void)? {
+        didSet { presenter.onOpenAlert = onOpenAlert }
+    }
+
     static let allRules: [AlertRuleInfo] = rules.map(\.info)
 
     // MARK: - Private state
@@ -96,11 +101,24 @@ final class AlertCenter: ObservableObject {
     /// in — and Vitality is frontmost exactly when the dashboard is open, which
     /// is when someone is watching a hot CPU wait out its sustain window.
     private final class ForegroundPresenter: NSObject, UNUserNotificationCenterDelegate {
+        var onOpenAlert: ((AlertRuleID) -> Void)?
+
         func userNotificationCenter(_ center: UNUserNotificationCenter,
                                     willPresent notification: UNNotification,
                                     withCompletionHandler completionHandler:
                                         @escaping (UNNotificationPresentationOptions) -> Void) {
             completionHandler([.banner, .sound])
+        }
+
+        func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                    didReceive response: UNNotificationResponse,
+                                    withCompletionHandler completionHandler: @escaping () -> Void) {
+            defer { completionHandler() }
+            guard response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+                  let raw = response.notification.request.content.userInfo["rule"] as? String,
+                  let rule = AlertRuleID(rawValue: raw) else { return }
+            let open = onOpenAlert
+            DispatchQueue.main.async { open?(rule) }
         }
     }
 
@@ -189,10 +207,11 @@ final class AlertCenter: ObservableObject {
             states[id] = state
             evaluations[id] = evaluation
 
-            // Notify on the *edge*, never on the level: the alert can stay up
-            // for hours and must produce exactly one banner.
-            if !wasFiring, state.isFiring, case let .triggering(_, title, detail) = evaluation {
-                justFired.append((rule, title, detail))
+            // First banner on the rising edge. A problem that stays true
+            // (disk at 92% all week) is raised again once the cooldown lapses.
+            if state.isFiring, let reading = evaluation.reading,
+               !wasFiring || shouldRenotify(id) {
+                justFired.append((rule, reading.title, reading.detail))
             }
         }
 
@@ -253,6 +272,11 @@ final class AlertCenter: ObservableObject {
 
     // MARK: - Notifications
 
+    private func shouldRenotify(_ id: AlertRuleID) -> Bool {
+        guard let last = lastNotified[id] else { return true }
+        return Date().timeIntervalSince(last) >= Self.notificationCooldown
+    }
+
     private func notifyIfAllowed(_ rule: Rule, title: String, detail: String) {
         let id = rule.info.id
         guard notificationsEnabled, !isMuted(id) else { return }
@@ -283,6 +307,7 @@ final class AlertCenter: ObservableObject {
             content.title = title
             content.body = detail
             content.sound = .default
+            content.userInfo = ["rule": id.rawValue]
             let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
             UNUserNotificationCenter.current().add(request) { [weak self] addError in
                 if let addError {
@@ -383,7 +408,7 @@ final class AlertCenter: ObservableObject {
                 icon: "externaldrive.fill"
             ),
             action: .openStorage,
-            actionLabel: "Open Storage",
+            actionLabel: "Review storage",
             // A disk does not flap. It fills over weeks and empties in one
             // deliberate action, so there is nothing to wait out.
             sustain: 1,
@@ -404,7 +429,7 @@ final class AlertCenter: ObservableObject {
                 icon: "cpu"
             ),
             action: .openActivity,
-            actionLabel: "Open Activity",
+            actionLabel: "Inspect activity",
             sustain: 120,
             evaluate: { status in
                 guard let usage = status.cpu?.usage else { return .released }
@@ -426,7 +451,7 @@ final class AlertCenter: ObservableObject {
                 icon: "memorychip"
             ),
             action: .openActivity,
-            actionLabel: "Open Activity",
+            actionLabel: "Inspect activity",
             sustain: 60,
             evaluate: { status in
                 guard let memory = status.memory,
@@ -449,7 +474,7 @@ final class AlertCenter: ObservableObject {
                 icon: "thermometer.high"
             ),
             action: .openSensors,
-            actionLabel: "Open Hardware",
+            actionLabel: "View sensors",
             // Half a minute filters the fan-spin-up spikes that a video export
             // produces on the way to a perfectly healthy steady state.
             sustain: 30,
@@ -469,8 +494,8 @@ final class AlertCenter: ObservableObject {
                 detail: "10% on battery power",
                 icon: "battery.25"
             ),
-            action: .none,
-            actionLabel: nil,
+            action: .openPower,
+            actionLabel: "Review power",
             // Nothing to wait for: the charge is already reported as a smoothed
             // integer, and the user needs the cable now, not in two minutes.
             sustain: 1,

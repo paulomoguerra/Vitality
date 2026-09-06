@@ -6,15 +6,83 @@ struct StatusWidgetView: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
-        if entry.isMissingData {
-            MissingDataView()
-        } else {
-            switch family {
-            case .systemSmall:  SmallStatusView(status: entry.status, isStale: entry.isStale)
-            case .systemMedium: MediumStatusView(status: entry.status, isStale: entry.isStale)
-            default:            LargeStatusView(status: entry.status, isStale: entry.isStale)
+        Group {
+            if entry.isMissingData {
+                MissingDataView()
+            } else {
+                switch family {
+                case .systemSmall:  SmallStatusView(status: entry.status, isStale: entry.isStale)
+                case .systemMedium: MediumStatusView(status: entry.status, isStale: entry.isStale)
+                default:            LargeStatusView(status: entry.status, isStale: entry.isStale)
+                }
             }
         }
+        .widgetURL(URL(string: "vitality://dashboard/overview"))
+    }
+}
+
+/// A widget is already a small surface. A single inset panel gives the three
+/// families the same visual grammar as the dashboard without adding nested
+/// cards around every value.
+private struct WidgetPanel<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(ThemeCardBackground(radius: 18))
+    }
+}
+
+private struct WidgetStatusBadge: View {
+    let score: Int?
+
+    private var level: Severity.Level? {
+        Severity.level(forHealth: score)
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: level?.symbolName ?? "questionmark.circle")
+                .font(.system(size: 10, weight: .semibold))
+            Text(level?.accessibilityLabel ?? "No data")
+                .font(Theme.body(11, .medium))
+                .lineLimit(1)
+        }
+        .foregroundStyle(level?.color ?? Theme.inkSecondary)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Health status")
+        .accessibilityValue(Text(level?.accessibilityLabel ?? "No data"))
+    }
+}
+
+private struct WidgetMetric: View {
+    let label: String
+    let value: String
+    let percent: Double?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(Theme.instrument(10))
+                .tracking(1)
+                .foregroundStyle(Theme.inkSecondary)
+                .textCase(.uppercase)
+            Text(value)
+                .font(Theme.mono(15, .semibold))
+                .foregroundStyle(Severity.forUsage(percent))
+                .lineLimit(1)
+            MiniBar(percent: percent, height: 4, accessibilityLabel: label)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(label)
+        .accessibilityValue(value)
     }
 }
 
@@ -23,18 +91,22 @@ struct StatusWidgetView: View {
 /// a broken widget rather than an idle one.
 struct MissingDataView: View {
     var body: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "gauge.medium")
-                .font(.system(size: 20))
-                .foregroundStyle(.secondary)
-            Text("Open Vitality")
-                .font(.system(size: 12, weight: .medium))
-            Text("The app needs to run to collect data.")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+        WidgetPanel {
+            VStack(alignment: .leading, spacing: 8) {
+                Image(systemName: "gauge.medium")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(Theme.accent)
+                Text("Open Vitality")
+                    .font(Theme.body(13, .semibold))
+                    .foregroundStyle(Theme.ink)
+                Text("Vitality needs to run once before this widget can show data.")
+                    .font(Theme.body(11))
+                    .foregroundStyle(Theme.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .padding(12)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Open Vitality to collect system data")
     }
 }
 
@@ -49,14 +121,19 @@ struct StatusFreshnessView: View {
 
     var body: some View {
         HStack(spacing: 4) {
+            Image(systemName: isStale ? "clock" : "checkmark")
+                .font(.system(size: 9, weight: .semibold))
             Circle()
-                .fill(isStale ? Color.orange : Color.green)
+                .fill(isStale ? Theme.statusWarn : Theme.statusGood)
                 .frame(width: 5, height: 5)
             Text(message)
-                .font(.system(size: 9, weight: isStale ? .medium : .regular))
-                .foregroundStyle(isStale ? Color.orange : Color.secondary)
+                .font(Theme.body(10, isStale ? .medium : .regular))
+                .foregroundStyle(isStale ? Theme.statusWarn : Theme.inkSecondary)
                 .lineLimit(1)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(isStale ? "Data is stale" : "Data is current")
+        .accessibilityValue(Text(message))
     }
 
     private var message: String {
@@ -71,41 +148,68 @@ struct SmallStatusView: View {
     let isStale: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Health").font(.system(size: 11)).foregroundStyle(.secondary)
-                Spacer()
-                Image(systemName: "gauge.medium")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-            }
-            StatusFreshnessView(status: status, isStale: isStale)
-            Spacer()
-            HStack(spacing: 10) {
-                HealthRing(score: status?.healthScore)
-                    .frame(width: 42, height: 42)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(status?.healthScore.map(String.init) ?? "—")
-                        .font(.system(size: 19, weight: .medium))
-                    Text(status?.healthScoreMsg ?? "—")
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
+        WidgetPanel {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("01 HEALTH")
+                        .font(Theme.instrument(11, .medium))
+                        .tracking(1.5)
+                        .foregroundStyle(Theme.inkSecondary)
+                    Spacer(minLength: 4)
+                    WidgetStatusBadge(score: status?.healthScore)
+                }
+
+                HStack(spacing: 11) {
+                    ZStack {
+                        HealthRing(score: status?.healthScore, lineWidth: 5)
+                            .accessibilityHidden(true)
+                        Text(status?.healthScore.map(String.init) ?? "—")
+                            .font(Theme.mono(18, .semibold))
+                            .foregroundStyle(Theme.ink)
+                    }
+                    .frame(width: 48, height: 48)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(status?.healthScoreMsg ?? "No data")
+                            .font(Theme.body(12, .medium))
+                            .foregroundStyle(Severity.forHealth(status?.healthScore))
+                            .lineLimit(1)
+                        Text("Health score")
+                            .font(Theme.body(10))
+                            .foregroundStyle(Theme.inkSecondary)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Health score")
+                .accessibilityValue(
+                    status?.healthScore.map { "\($0) out of 100, \(status?.healthScoreMsg ?? "")" }
+                    ?? "No data"
+                )
+
+                StatusFreshnessView(status: status, isStale: isStale)
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 8) {
+                    compactMetric("CPU", status?.cpu?.usage)
+                    compactMetric("RAM", status?.memory?.usedPercent)
+                    compactMetric("DISK", status?.primaryDisk?.usedPercent)
                 }
             }
-            Spacer()
-            HStack(spacing: 8) {
-                miniStat("cpu", status?.cpu?.usage)
-                miniStat("memorychip", status?.memory?.usedPercent)
-                miniStat("internaldrive", status?.primaryDisk?.usedPercent)
-            }
         }
-        .padding(14)
     }
 
-    private func miniStat(_ icon: String, _ percent: Double?) -> some View {
-        HStack(spacing: 2) {
-            Image(systemName: icon).font(.system(size: 8))
-            Text(Fmt.percent(percent)).font(.system(size: 9, weight: .medium))
+    private func compactMetric(_ label: String, _ percent: Double?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(Theme.instrument(9))
+                .tracking(0.8)
+                .foregroundStyle(Theme.inkSecondary)
+            Text(Fmt.percent(percent))
+                .font(Theme.mono(11, .semibold))
+                .foregroundStyle(Severity.forUsage(percent))
         }
-        .foregroundStyle(Severity.forUsage(percent))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -114,52 +218,46 @@ struct MediumStatusView: View {
     let isStale: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(status?.hardware?.model ?? status?.host ?? "This Mac")
-                    .font(.system(size: 12, weight: .medium)).lineLimit(1)
-                Spacer()
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(Severity.forHealth(status?.healthScore))
-                        .frame(width: 7, height: 7)
-                    Text("\(status?.healthScore.map(String.init) ?? "—") · \(status?.healthScoreMsg ?? "—")")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+        WidgetPanel {
+            VStack(alignment: .leading, spacing: 11) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("VITALITY")
+                            .font(Theme.instrument(11, .medium))
+                            .tracking(1.8)
+                            .foregroundStyle(Theme.inkSecondary)
+                        Text(status?.hardware?.model ?? status?.host ?? "This Mac")
+                            .font(Theme.body(13, .semibold))
+                            .foregroundStyle(Theme.ink)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 5)
+                    WidgetStatusBadge(score: status?.healthScore)
                 }
-            }
 
-            HStack(spacing: 16) {
-                stat("CPU", status?.cpu?.usage)
-                stat("Memory", status?.memory?.usedPercent)
-                stat("Disk", status?.primaryDisk?.usedPercent)
-            }
-
-            HStack {
-                Label(Fmt.watts(status?.headlinePower), systemImage: "bolt.fill")
-                Spacer()
-                Label("GPU \(Fmt.percent(status?.gpu?.utilization))", systemImage: "cpu.fill")
-                Spacer()
-                if let battery = status?.battery {
-                    Label("\(battery.percent.map { "\($0)%" } ?? "—")", systemImage: "battery.100")
+                HStack(spacing: 14) {
+                    WidgetMetric(label: "CPU", value: Fmt.percent(status?.cpu?.usage), percent: status?.cpu?.usage)
+                    WidgetMetric(label: "RAM", value: Fmt.percent(status?.memory?.usedPercent), percent: status?.memory?.usedPercent)
+                    WidgetMetric(label: "DISK", value: Fmt.percent(status?.primaryDisk?.usedPercent), percent: status?.primaryDisk?.usedPercent)
                 }
-            }
-            .font(.system(size: 10))
-            .foregroundStyle(.secondary)
 
-            StatusFreshnessView(status: status, isStale: isStale)
-        }
-        .padding(14)
-    }
+                Divider().overlay(Theme.hairline)
 
-    private func stat(_ label: String, _ percent: Double?) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text(label).font(.system(size: 10)).foregroundStyle(.secondary)
-                Spacer()
-                Text(Fmt.percent(percent)).font(.system(size: 10, weight: .medium))
+                HStack(spacing: 10) {
+                    Label(Fmt.watts(status?.headlinePower), systemImage: "bolt.fill")
+                    Spacer(minLength: 6)
+                    Label("GPU \(Fmt.percent(status?.gpu?.utilization))", systemImage: "cpu.fill")
+                    if let battery = status?.battery {
+                        Spacer(minLength: 6)
+                        Label("\(battery.percent.map { "\($0)%" } ?? "—")", systemImage: "battery.100")
+                    }
+                }
+                .font(Theme.body(10, .medium))
+                .foregroundStyle(Theme.inkSecondary)
+                .lineLimit(1)
+
+                StatusFreshnessView(status: status, isStale: isStale)
             }
-            MiniBar(percent: percent)
         }
     }
 }
@@ -169,96 +267,104 @@ struct LargeStatusView: View {
     let isStale: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 11) {
-                // Score inside the ring, matching the dashboard header — the
-                // ring alone was decorative and the number lived in the
-                // subtitle, so the two surfaces read differently.
-                ZStack {
-                    HealthRing(score: status?.healthScore, lineWidth: 6)
-                    Text(status?.healthScore.map(String.init) ?? "—")
-                        .font(.system(size: 15, weight: .semibold))
+        WidgetPanel {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 11) {
+                    ZStack {
+                        HealthRing(score: status?.healthScore, lineWidth: 6)
+                            .accessibilityHidden(true)
+                        Text(status?.healthScore.map(String.init) ?? "—")
+                            .font(Theme.mono(15, .semibold))
+                            .foregroundStyle(Theme.ink)
+                    }
+                    .frame(width: 48, height: 48)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(status?.hardware?.model ?? status?.host ?? "This Mac")
+                            .font(Theme.body(13, .semibold))
+                            .foregroundStyle(Theme.ink)
+                            .lineLimit(1)
+                        Text(status?.healthScoreMsg ?? "No data")
+                            .font(Theme.body(11, .medium))
+                            .foregroundStyle(Severity.forHealth(status?.healthScore))
+                            .lineLimit(1)
+                        Text("Uptime \(status?.uptime ?? "—")")
+                            .font(Theme.body(10))
+                            .foregroundStyle(Theme.inkSecondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 2)
+                    WidgetStatusBadge(score: status?.healthScore)
                 }
-                .frame(width: 44, height: 44)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Health score")
+                .accessibilityValue(
+                    status?.healthScore.map { "\($0) out of 100, \(status?.healthScoreMsg ?? "")" }
+                    ?? "No data"
+                )
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(status?.hardware?.model ?? status?.host ?? "This Mac")
-                        .font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                    Text(status?.healthScoreMsg ?? "—")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(Severity.forHealth(status?.healthScore))
-                        .lineLimit(1)
-                    Text("Up \(status?.uptime ?? "—")")
-                        .font(.system(size: 9)).foregroundStyle(.tertiary).lineLimit(1)
+                StatusFreshnessView(status: status, isStale: isStale)
+
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 14, alignment: .leading),
+                    GridItem(.flexible(), spacing: 14, alignment: .leading),
+                ], spacing: 13) {
+                    WidgetMetric(label: "CPU", value: Fmt.percent(status?.cpu?.usage), percent: status?.cpu?.usage)
+                    WidgetMetric(label: "GPU", value: Fmt.percent(status?.gpu?.utilization), percent: status?.gpu?.utilization)
+                    WidgetMetric(label: "RAM", value: Fmt.percent(status?.memory?.usedPercent), percent: status?.memory?.usedPercent)
+                    WidgetMetric(label: "DISK", value: Fmt.percent(status?.primaryDisk?.usedPercent), percent: status?.primaryDisk?.usedPercent)
                 }
-                Spacer(minLength: 0)
-            }
 
-            StatusFreshnessView(status: status, isStale: isStale)
-
-            // `alignment: .leading` is load-bearing: GridItem centres cell
-            // content by default. The four bar metrics fill their cell so they
-            // looked fine, but any narrower cell drifted to the middle.
-            LazyVGrid(columns: [
-                GridItem(.flexible(), spacing: 14, alignment: .leading),
-                GridItem(.flexible(), spacing: 14, alignment: .leading),
-            ], spacing: 13) {
-                metric("CPU", Fmt.percent(status?.cpu?.usage), status?.cpu?.usage,
-                       sub: "\(status?.cpu?.coreCount.map(String.init) ?? "—") cores")
-                metric("GPU", Fmt.percent(status?.gpu?.utilization),
-                       status?.gpu?.utilization,
-                       sub: status?.gpu?.inUseMemory.map { "\(Fmt.bytes($0)) used" } ?? "—")
-                metric("Memory", Fmt.percent(status?.memory?.usedPercent), status?.memory?.usedPercent,
-                       sub: "\(Fmt.bytes(status?.memory?.used)) used")
-                metric("Disk", Fmt.percent(status?.primaryDisk?.usedPercent), status?.primaryDisk?.usedPercent,
-                       sub: "\(Fmt.bytes(status?.primaryDisk?.free)) free")
-            }
-
-            // Power has no percentage, so it can't carry a bar like the four
-            // above. As a fifth grid cell it sat alone next to a dead hole.
-            HStack(spacing: 5) {
-                Image(systemName: "bolt.fill").font(.system(size: 9))
-                Text(Fmt.watts(status?.headlinePower))
-                    .font(.system(size: 11, weight: .medium))
-                if let battery = status?.battery {
-                    Text("·").foregroundStyle(.tertiary)
-                    Image(systemName: "battery.100").font(.system(size: 9))
-                    Text("\(battery.percent.map { "\($0)%" } ?? "—") \(battery.status ?? "")")
-                        .font(.system(size: 11, weight: .medium))
+                HStack(spacing: 6) {
+                    Image(systemName: "bolt.fill")
+                    Text(Fmt.watts(status?.headlinePower))
+                        .font(Theme.mono(11, .medium))
+                    if let battery = status?.battery {
+                        Text("·").foregroundStyle(Theme.inkTertiary)
+                        Image(systemName: "battery.100")
+                        Text("\(battery.percent.map { "\($0)%" } ?? "—")")
+                            .font(Theme.mono(11, .medium))
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(.secondary)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(Theme.inkSecondary)
 
-            if let processes = status?.topProcesses, !processes.isEmpty {
-                Divider()
-                VStack(spacing: 3) {
-                    ForEach(processes.prefix(3)) { process in
+                if let processes = status?.topProcesses, !processes.isEmpty {
+                    Divider().overlay(Theme.hairline)
+                    VStack(spacing: 5) {
                         HStack {
-                            Text(process.name ?? "—").font(.system(size: 10)).lineLimit(1)
+                            Text("TOP ACTIVITY")
+                                .font(Theme.instrument(10, .medium))
+                                .tracking(1.2)
+                                .foregroundStyle(Theme.inkSecondary)
                             Spacer()
-                            Text(Fmt.percent(process.cpu, decimals: 1))
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(Severity.forUsage(process.cpu))
+                            Text("CPU")
+                                .font(Theme.instrument(10))
+                                .foregroundStyle(Theme.inkSecondary)
+                        }
+                        ForEach(processes.prefix(3)) { process in
+                            HStack(spacing: 8) {
+                                Image(systemName: "circle.fill")
+                                    .font(.system(size: 4))
+                                    .foregroundStyle(Severity.forUsage(process.cpu))
+                                Text(process.name ?? "Unknown process")
+                                    .font(Theme.body(10))
+                                    .foregroundStyle(Theme.ink)
+                                    .lineLimit(1)
+                                Spacer(minLength: 4)
+                                Text(Fmt.percent(process.cpu, decimals: 1))
+                                    .font(Theme.mono(10, .medium))
+                                    .foregroundStyle(Severity.forUsage(process.cpu))
+                            }
+                            .accessibilityElement(children: .combine)
+                            .accessibilityLabel(process.name ?? "Unknown process")
+                            .accessibilityValue("CPU \(Fmt.percent(process.cpu, decimals: 1))")
                         }
                     }
                 }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
         }
-        .padding(16)
-    }
-
-    private func metric(_ label: String, _ value: String, _ percent: Double?, sub: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
-            Text(value).font(.system(size: 17, weight: .semibold))
-            // Always drawn, even when the value is missing. Conditionally
-            // omitting the bar makes that cell shorter than its neighbour and
-            // knocks the whole grid row out of alignment.
-            MiniBar(percent: percent)
-            Text(sub).font(.system(size: 9)).foregroundStyle(.tertiary).lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

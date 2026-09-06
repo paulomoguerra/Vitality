@@ -17,6 +17,19 @@ struct DuplicateGroup: Identifiable, Hashable {
     var id: String { "\(digest)-\(files.first?.size ?? 0)" }
     var size: Int64 { files.first?.size ?? 0 }
     var reclaimable: Int64 { size * Int64(max(0, files.count - 1)) }
+
+    /// Newest by modification date stays; ties break on path. The rest can
+    /// go to Trash without losing the last original.
+    var olderCopies: [DuplicateFile] {
+        guard files.count > 1 else { return [] }
+        let newest = files.max { lhs, rhs in
+            let left = lhs.modified ?? .distantPast
+            let right = rhs.modified ?? .distantPast
+            if left != right { return left < right }
+            return lhs.path < rhs.path
+        }
+        return files.filter { $0.path != newest?.path }
+    }
 }
 
 enum DuplicateAnalyzer {
@@ -52,18 +65,25 @@ enum DuplicateAnalyzer {
     /// in length is settled after 640 KB instead of gigabytes. Both hashing
     /// passes run across all cores. Packages and hidden files are skipped.
     static func scan(path: String) -> Result<[DuplicateGroup], ActionError> {
+        guard !Task.isCancelled else {
+            return .failure(ActionError("Scan cancelled."))
+        }
         let root = URL(fileURLWithPath: path).standardizedFileURL
         var isDirectory: ObjCBool = false
 
         guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory),
               isDirectory.boolValue else {
-            return .failure(ActionError("That folder doesn't exist."))
+            return .failure(ActionError("That folder doesn't exist. Choose another folder and scan again."))
         }
         guard FileManager.default.isReadableFile(atPath: root.path) else {
             return .failure(ActionError("Vitality doesn't have permission to read this folder."))
         }
 
-        let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
+        let keys: [URLResourceKey] = [
+            .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey,
+            .contentModificationDateKey, .isUbiquitousItemKey,
+            .ubiquitousItemDownloadingStatusKey,
+        ]
         guard let enumerator = FileManager.default.enumerator(
             at: root,
             includingPropertiesForKeys: keys,
@@ -75,11 +95,15 @@ enum DuplicateAnalyzer {
         let keySet = Set(keys)
         var bySize: [Int64: [Candidate]] = [:]
         for case let url as URL in enumerator {
+            if Task.isCancelled {
+                return .failure(ActionError("Scan cancelled."))
+            }
             // Read the resource values once, here. The modification date is
             // wanted later, and asking the filesystem for it a second time is
             // a stat per surviving file for something already in hand.
             guard let values = try? url.resourceValues(forKeys: keySet),
                   values.isRegularFile == true,
+                  !shouldSkipHashing(values),
                   let fileSize = values.fileSize,
                   fileSize > 0 else { continue }
             bySize[Int64(fileSize), default: []].append(Candidate(
@@ -95,6 +119,9 @@ enum DuplicateAnalyzer {
         var byDigest: [DigestKey: [DuplicateFile]] = [:]
         var contested: [[Candidate]] = []
         for (size, candidates) in bySize where candidates.count > 1 {
+            if Task.isCancelled {
+                return .failure(ActionError("Scan cancelled."))
+            }
             let prefixes = digests(of: candidates, upTo: prefixSize)
             var byPrefix: [String: [Candidate]] = [:]
             for (candidate, prefix) in zip(candidates, prefixes) {
@@ -112,6 +139,9 @@ enum DuplicateAnalyzer {
 
         // Sieve three: the full read, for the few that got this far.
         for candidates in contested {
+            if Task.isCancelled {
+                return .failure(ActionError("Scan cancelled."))
+            }
             let full = digests(of: candidates, upTo: nil)
             for (candidate, digest) in zip(candidates, full) {
                 guard let digest else { continue }
@@ -136,13 +166,8 @@ enum DuplicateAnalyzer {
     }
 
     @discardableResult
-    static func moveToTrash(_ file: DuplicateFile) -> Result<Void, ActionError> {
-        do {
-            try FileManager.default.trashItem(at: URL(fileURLWithPath: file.path), resultingItemURL: nil)
-            return .success(())
-        } catch {
-            return .failure(ActionError("Couldn't move \(file.name) to the Trash: \(error.localizedDescription)"))
-        }
+    static func moveToTrash(_ file: DuplicateFile) -> Result<TrashReceipt, ActionError> {
+        TrashMover.move(URL(fileURLWithPath: file.path))
     }
 
     @discardableResult
@@ -195,8 +220,26 @@ enum DuplicateAnalyzer {
         return results
     }
 
+    /// Symlinks and evicted iCloud items are not copies we can safely hash.
+    /// Opening a dataless file hydrates it and can fill the disk the user
+    /// was trying to free.
+    private static func shouldSkipHashing(_ values: URLResourceValues) -> Bool {
+        if values.isSymbolicLink == true { return true }
+        if values.isUbiquitousItem == true,
+           values.ubiquitousItemDownloadingStatus != .current {
+            return true
+        }
+        return false
+    }
+
     /// `limit` reads at most that many bytes; `nil` reads the whole file.
     private static func hash(_ url: URL, upTo limit: Int?) -> String? {
+        let keys: Set<URLResourceKey> = [
+            .isSymbolicLinkKey, .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey,
+        ]
+        if let values = try? url.resourceValues(forKeys: keys), shouldSkipHashing(values) {
+            return nil
+        }
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
 
@@ -204,6 +247,7 @@ enum DuplicateAnalyzer {
         var remaining = limit ?? Int.max
         do {
             while remaining > 0 {
+                if Task.isCancelled { return nil }
                 let data = try handle.read(upToCount: min(chunkSize, remaining)) ?? Data()
                 if data.isEmpty { break }
                 hasher.update(data: data)

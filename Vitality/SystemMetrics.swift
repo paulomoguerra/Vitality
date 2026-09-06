@@ -44,8 +44,8 @@ final class SystemMetrics {
         let disks = sampleDisks(now: now)
         let batterySnapshot = sampleBattery(now: now)
         let thermal = thermalMonitor.sample()
-        let power = samplePower(battery: batterySnapshot.battery,
-                                registry: batterySnapshot.registry)
+        let power = samplePower(registry: batterySnapshot.registry,
+                                isOnAC: batterySnapshot.isOnAC)
         let processes = sampleProcesses(now: now)
 
         let health = HealthScore.evaluate(cpu: cpu, memory: memory,
@@ -95,15 +95,15 @@ final class SystemMetrics {
 
     /// `host_processor_info` returns ticks accumulated since boot, so usage is
     /// the ratio of busy-to-total ticks *between two samples*. The first call
-    /// after launch has no predecessor and reports zero.
-    private func sampleCPUTicks() -> (Double, [Double]) {
+    /// after launch has no predecessor — that is unknown, not 0%.
+    private func sampleCPUTicks() -> (Double?, [Double]?) {
         var cpuCount: natural_t = 0
         var info: processor_info_array_t?
         var infoCount: mach_msg_type_number_t = 0
 
         guard host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO,
                                   &cpuCount, &info, &infoCount) == KERN_SUCCESS,
-              let info else { return (0, []) }
+              let info else { return (nil, nil) }
 
         defer {
             vm_deallocate(mach_task_self_,
@@ -124,7 +124,7 @@ final class SystemMetrics {
 
         defer { previousCPUTicks = current }
         guard let previous = previousCPUTicks, previous.count == current.count else {
-            return (0, Array(repeating: 0, count: current.count))
+            return (nil, nil)
         }
 
         var perCore: [Double] = []
@@ -221,11 +221,11 @@ final class SystemMetrics {
     /// The adapter *rating* and what it is actually delivering are different
     /// numbers, and both are worth having: a 70W charger always reports 70W,
     /// while `inputWatts` says whether 8W or 60W is crossing the cable.
-    private func samplePower(battery: SystemStatus.Battery?,
-                             registry: [String: Any]?) -> SystemStatus.Power {
-        batteryProvider.power(battery: battery,
-                              registry: registry,
-                              rails: thermalMonitor.power())
+    private func samplePower(registry: [String: Any]?,
+                             isOnAC: Bool?) -> SystemStatus.Power {
+        batteryProvider.power(registry: registry,
+                              rails: thermalMonitor.power(),
+                              isOnAC: isOnAC)
     }
 
     // MARK: - Misc

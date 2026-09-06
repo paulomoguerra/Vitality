@@ -11,6 +11,8 @@ struct DuplicateFilesView: View {
     @State private var scanError: String?
     @State private var actionError: String?
     @State private var pendingTrash: [DuplicateFile] = []
+    @State private var trashReceipts: [TrashReceipt] = []
+    @State private var trashAttemptedCount = 0
     @State private var scanTask: Task<Void, Never>?
 
     private var selectedFiles: [DuplicateFile] {
@@ -21,23 +23,45 @@ struct DuplicateFilesView: View {
         selectedFiles.reduce(0) { $0 + $1.size }
     }
 
+    private var allOlderCopies: [DuplicateFile] {
+        groups.flatMap(\.olderCopies)
+    }
+
+    private var pendingTrashRemovesEveryCopy: Bool {
+        let paths = Set(pendingTrash.map(\.path))
+        return groups.contains { group in
+            !group.files.isEmpty && group.files.allSatisfy { paths.contains($0.path) }
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
 
-            Text("Select files yourself. Vitality never deletes or moves duplicates automatically.")
+            Text("Vitality never moves a duplicate until you ask. Trash older copies keeps the newest file.")
                 .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.inkSecondary)
+
+            folderChips
 
             if !root.isEmpty {
                 Text(root)
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Theme.inkTertiary)
                     .lineLimit(1)
                     .truncationMode(.head)
             }
 
             content
+
+            if !trashReceipts.isEmpty {
+                trashResult(trashReceipts, attempted: trashAttemptedCount)
+            }
+        }
+        .padding(13)
+        .background(ThemeCardBackground())
+        .onAppear {
+            if !didScan && !isScanning { scan() }
         }
         .onDisappear { scanTask?.cancel() }
         .confirmationDialog(
@@ -51,7 +75,9 @@ struct DuplicateFilesView: View {
             Button("Move to Trash", role: .destructive) { trashPending() }
             Button("Cancel", role: .cancel) { pendingTrash = [] }
         } message: {
-            Text("The files will go to the Trash and can be restored from Finder.")
+            Text(pendingTrashRemovesEveryCopy
+                 ? "You selected every copy in at least one group. The last original will go to Trash too."
+                 : "The files will go to the Trash and can be restored from Finder.")
         }
         .alert("Couldn't complete that", isPresented: Binding(
             get: { actionError != nil },
@@ -67,19 +93,103 @@ struct DuplicateFilesView: View {
         HStack(spacing: 8) {
             Text("Duplicate files")
                 .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.ink)
 
             Spacer()
 
-            Button("Choose Folder…") { chooseRoot() }
+            if isScanning {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Scanning")
+                Button("Cancel") { cancelScan() }
+                    .accessibilityHint("Stops the duplicate scan")
+            } else if didScan {
+                Button("Scan again") { scan() }
+                    .disabled(root.isEmpty)
+            }
+
+            if !selectedFiles.isEmpty {
+                Button("Move…") { chooseDestination() }
+                    .disabled(isScanning)
+                    .help("Move selected files to another folder")
+                Button("Move \(selectedFiles.count) to Trash") {
+                    pendingTrash = selectedFiles
+                }
+                .buttonStyle(ThemePillButtonStyle(prominent: true))
                 .disabled(isScanning)
-            Button(isScanning ? "Scanning…" : "Scan") { scan() }
-                .disabled(isScanning || root.isEmpty)
-            Button("Move selected…") { chooseDestination() }
-                .disabled(selectedFiles.isEmpty || isScanning)
-            Button("Trash selected…", role: .destructive) { pendingTrash = selectedFiles }
-                .disabled(selectedFiles.isEmpty || isScanning)
+            }
         }
-        .controlSize(.small)
+    }
+
+    private var folderChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(DiskAnalyzer.suggestedRoots.prefix(4), id: \.path) { entry in
+                    Button(entry.label) { scan(path: entry.path) }
+                        .buttonStyle(ThemePillButtonStyle(prominent: root == entry.path))
+                        .disabled(isScanning)
+                }
+                Button("Choose…") { chooseRoot() }
+                    .buttonStyle(ThemePillButtonStyle())
+                    .disabled(isScanning)
+            }
+        }
+    }
+
+    private func trashResult(_ receipts: [TrashReceipt], attempted: Int) -> some View {
+        let moved = receipts.count
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(Theme.statusGood)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(moved == attempted
+                     ? "Moved \(moved) file\(moved == 1 ? "" : "s") to Trash"
+                     : "Moved \(moved) of \(attempted) files to Trash")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.ink)
+                Text("Recoverable in Finder until Trash is emptied")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.inkSecondary)
+                if let receipt = receipts.first, receipts.count == 1 {
+                    Text(receipt.destinationURL.path)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(Theme.inkSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                        .help(receipt.destinationURL.path)
+                }
+            }
+
+            Spacer(minLength: 6)
+
+            if let receipt = receipts.first, receipts.count == 1 {
+                Button("Reveal") {
+                    NSWorkspace.shared.activateFileViewerSelecting([receipt.destinationURL])
+                }
+                .controlSize(.small)
+                .accessibilityLabel("Reveal moved item in Finder")
+            }
+
+            Button("Open Trash") { DiskAnalyzer.openTrash() }
+                .controlSize(.small)
+
+            Button {
+                trashReceipts = []
+                trashAttemptedCount = 0
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .accessibilityLabel("Dismiss Trash result")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(ThemeCardBackground(radius: Theme.nestedRadius))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Moved \(moved) of \(attempted) files to Trash")
     }
 
     @ViewBuilder
@@ -89,16 +199,16 @@ struct DuplicateFilesView: View {
                 ProgressView()
                 Text("Comparing files by size and content…")
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.inkSecondary)
                 Text("Large folders can take a while. Packages and hidden files are skipped.")
                     .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Theme.inkTertiary)
             }
             .frame(maxWidth: .infinity, minHeight: 220)
         } else if let scanError {
             emptyState(icon: "exclamationmark.triangle.fill", title: scanError)
         } else if !didScan {
-            emptyState(icon: "square.stack.3d.up", title: "Choose a folder and scan for duplicates.")
+            emptyState(icon: "square.stack.3d.up", title: "Looking for duplicates…")
         } else if groups.isEmpty {
             emptyState(icon: "checkmark.circle", title: "No exact duplicates found in this folder.")
         } else {
@@ -106,11 +216,17 @@ struct DuplicateFilesView: View {
                 HStack {
                     Text("\(groups.count) groups · \(selectedFiles.count) selected")
                         .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Theme.ink)
                     Spacer()
                     if !selectedFiles.isEmpty {
                         Text("\(Fmt.bytes(selectedBytes)) selected")
                             .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.inkSecondary)
+                    }
+                    if !allOlderCopies.isEmpty {
+                        Button("Trash older copies") { pendingTrash = allOlderCopies }
+                            .disabled(isScanning)
+                            .help("Keeps the newest file in each group")
                     }
                 }
 
@@ -130,16 +246,24 @@ struct DuplicateFilesView: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
                 Image(systemName: "square.stack.3d.up.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Theme.statusWarn)
                 Text("\(group.files.count) identical copies")
                     .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.ink)
                 Text("· \(Fmt.bytes(group.size)) each")
                     .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.inkSecondary)
                 Spacer()
                 Text("\(Fmt.bytes(group.reclaimable)) reclaimable")
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Theme.statusWarn)
+                if !group.olderCopies.isEmpty {
+                    Button("Trash \(group.olderCopies.count) older") {
+                        pendingTrash = group.olderCopies
+                    }
+                    .controlSize(.small)
+                    .help("Keeps the newest copy")
+                }
             }
 
             ForEach(group.files) { file in
@@ -147,8 +271,7 @@ struct DuplicateFilesView: View {
             }
         }
         .padding(9)
-        .background(RoundedRectangle(cornerRadius: 9)
-            .fill(Color.primary.opacity(0.04)))
+        .background(ThemeCardBackground(radius: Theme.nestedRadius))
     }
 
     private func fileRow(_ file: DuplicateFile) -> some View {
@@ -161,14 +284,16 @@ struct DuplicateFilesView: View {
                 }
             ))
             .labelsHidden()
+            .accessibilityLabel("Select \(file.name)")
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(file.name)
                     .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.ink)
                     .lineLimit(1)
                 Text(file.path)
                     .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Theme.inkTertiary)
                     .lineLimit(1)
                     .truncationMode(.head)
             }
@@ -187,9 +312,10 @@ struct DuplicateFilesView: View {
         VStack(spacing: 7) {
             Image(systemName: icon)
                 .font(.system(size: 25))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Theme.inkTertiary)
             Text(title)
                 .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.ink)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, minHeight: 220)
@@ -202,15 +328,12 @@ struct DuplicateFilesView: View {
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose"
         if panel.runModal() == .OK, let url = panel.url {
-            root = url.path
-            groups = []
-            selectedPaths = []
-            didScan = false
-            scanError = nil
+            scan(path: url.path)
         }
     }
 
-    private func scan() {
+    private func scan(path: String? = nil) {
+        if let path { root = path }
         scanTask?.cancel()
         let target = root
         isScanning = true
@@ -232,6 +355,16 @@ struct DuplicateFilesView: View {
                 }
             }
         }
+    }
+
+    private func cancelScan() {
+        scanTask?.cancel()
+        scanTask = nil
+        isScanning = false
+        didScan = false
+        groups = []
+        selectedPaths = []
+        scanError = nil
     }
 
     private func chooseDestination() {
@@ -258,16 +391,26 @@ struct DuplicateFilesView: View {
     private func trashPending() {
         let files = pendingTrash
         pendingTrash = []
+        trashAttemptedCount = files.count
+        trashReceipts = []
         var failures: [String] = []
         var moved: [DuplicateFile] = []
+        var receipts: [TrashReceipt] = []
         for file in files {
             switch DuplicateAnalyzer.moveToTrash(file) {
-            case .success: moved.append(file)
+            case .success(let receipt):
+                moved.append(file)
+                receipts.append(receipt)
             case .failure(let error): failures.append(error.message)
             }
         }
+        trashReceipts = receipts
         removeFiles(moved)
-        if let first = failures.first { actionError = first }
+        if let first = failures.first {
+            actionError = failures.count == 1
+                ? first
+                : "Couldn't move \(failures.count) files. \(first)"
+        }
     }
 
     private func removeFiles(_ files: [DuplicateFile]) {

@@ -56,6 +56,7 @@ final class HealthScoreTests: XCTestCase {
     func testEachPrimarySignalIsRequired() {
         XCTAssertNil(evaluate(cpu: cpu(usage: nil)).score, "CPU usage is required")
         XCTAssertNil(evaluate(memory: memory(swapUsed: nil)).score, "swap used is required")
+        XCTAssertNil(evaluate(memory: memory(swapTotal: nil)).score, "swap total is required")
         XCTAssertNil(evaluate(disk: disk(usedPercent: nil)).score, "disk usage is required")
     }
 
@@ -113,6 +114,31 @@ final class HealthScoreTests: XCTestCase {
         XCTAssertEqual(evaluate().message, "Excellent")
         XCTAssertEqual(evaluate(disk: disk(usedPercent: 88)).message, "Excellent: Disk filling up")
         XCTAssertEqual(evaluate(disk: disk(usedPercent: 96)).message, "Fair: Disk critically full")
+        // 28 disk + 16 swap + 12 CPU + 4 busy = 60 → 40, Poor.
+        XCTAssertEqual(
+            evaluate(cpu: cpu(usage: 95, load5: 8, cores: 8),
+                     memory: memory(swapUsed: 3_600_000_000),
+                     disk: disk(usedPercent: 96)).message,
+            "Poor: Disk critically full"
+        )
+        // Same plus a worn battery (12) and overload (8 instead of busy 4) → 24, Critical.
+        XCTAssertEqual(
+            evaluate(cpu: cpu(usage: 95, load5: 12, cores: 8),
+                     memory: memory(swapUsed: 3_600_000_000),
+                     disk: disk(usedPercent: 96),
+                     battery: battery(capacity: 50)).message,
+            "Critical: Disk critically full"
+        )
+    }
+
+    /// The ranges are half-open on purpose: the boundary belongs to the
+    /// worse bucket, so a disk at 90% is "almost full", not "filling up".
+    func testDiskThresholdsBelongToTheWorseBucket() {
+        XCTAssertEqual(evaluate(disk: disk(usedPercent: 74)).score, 100)
+        XCTAssertEqual(evaluate(disk: disk(usedPercent: 75)).score, 96)
+        XCTAssertEqual(evaluate(disk: disk(usedPercent: 85)).score, 90)
+        XCTAssertEqual(evaluate(disk: disk(usedPercent: 90)).score, 80)
+        XCTAssertEqual(evaluate(disk: disk(usedPercent: 95)).score, 72)
     }
 
     // MARK: - Deliberate non-deductions

@@ -77,27 +77,24 @@ final class StatusPoller: ObservableObject {
     func refresh() {
         let now = Date()
         let isWidgetRefreshDue = now.timeIntervalSince(lastWidgetReload) >= widgetReloadInterval
-        if isWidgetRefreshDue { lastWidgetReload = now }
 
-        let started = engine.collect { [weak self] status in
-            // Still on the metrics queue: encoding and writing the shared file
-            // never touches the main thread.
-            let writeError = isWidgetRefreshDue ? SharedStatusStore.write(status) : nil
+        engine.collect { [weak self] status in
+            // The first CPU sample has no delta and reports nil. Publishing
+            // that snapshot would pin widgets at 0% until the next 30s write.
+            let publishWidget = isWidgetRefreshDue && status.cpu?.usage != nil
+            let writeError = publishWidget ? SharedStatusStore.write(status) : nil
             Task { @MainActor in
                 guard let self else { return }
                 if let writeError {
                     self.log.error("shared store write failed: \(writeError.localizedDescription, privacy: .public)")
                     self.lastError = writeError.localizedDescription
-                } else if isWidgetRefreshDue {
+                } else if publishWidget {
                     self.lastError = nil
+                    self.lastWidgetReload = now
+                    WidgetCenter.shared.reloadAllTimelines()
                 }
                 self.latest = status
-                if isWidgetRefreshDue { WidgetCenter.shared.reloadAllTimelines() }
             }
         }
-
-        // The tick was dropped because a collection is still running. Give the
-        // slot back, or the widgets would wait a further 30 seconds for it.
-        if !started, isWidgetRefreshDue { lastWidgetReload = .distantPast }
     }
 }

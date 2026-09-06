@@ -23,6 +23,8 @@ struct HistoryChart: View, Equatable {
     var height: CGFloat = 64
     /// Formats the hovered value ("42%", "8.4 MB/s").
     var format: (Double) -> String = { String(format: "%.0f%%", $0) }
+    /// 24 h / 7 d hovers need a calendar date; the 1 h view does not.
+    var showsCalendarDate = false
 
     @State private var hoverLocation: CGPoint?
 
@@ -35,6 +37,7 @@ struct HistoryChart: View, Equatable {
     static func == (lhs: HistoryChart, rhs: HistoryChart) -> Bool {
         lhs.points == rhs.points && lhs.scale == rhs.scale
             && lhs.tint == rhs.tint && lhs.height == rhs.height
+            && lhs.showsCalendarDate == rhs.showsCalendarDate
     }
 
     var body: some View {
@@ -61,6 +64,7 @@ struct HistoryChart: View, Equatable {
             }
         }
         .frame(height: height)
+        .accessibilityHidden(true)
     }
 
     // MARK: - Geometry
@@ -112,7 +116,7 @@ struct HistoryChart: View, Equatable {
             path.move(to: CGPoint(x: 0, y: size.height - 0.5))
             path.addLine(to: CGPoint(x: size.width, y: size.height - 0.5))
         }
-        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+        .stroke(Theme.grid, lineWidth: 1)
     }
 
     // MARK: - Hover
@@ -142,23 +146,32 @@ struct HistoryChart: View, Equatable {
             path.move(to: CGPoint(x: hover.point.x, y: 0))
             path.addLine(to: CGPoint(x: hover.point.x, y: size.height))
         }
-        .stroke(Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+        .stroke(Theme.inkFaint, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
 
         Circle()
             .fill(tint)
-            .stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 2)
+            .stroke(Theme.cardBg, lineWidth: 2)
             .frame(width: 9, height: 9)
             .position(hover.point)
 
-        Text("\(hover.date, format: .dateTime.hour().minute())  \(format(hover.value))")
+        Text("\(hover.date, format: hoverDateFormat)  \(format(hover.value))")
             .font(.system(size: 10, weight: .medium).monospacedDigit())
+            .foregroundStyle(Theme.ink)
             .padding(.horizontal, 7).padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: 5).fill(.regularMaterial))
-            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color.primary.opacity(0.1)))
+            .background(RoundedRectangle(cornerRadius: 5).fill(Theme.cardBg))
+            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Theme.hairline))
             // Clamp the bubble inside the chart instead of letting it clip at
             // either edge.
-            .position(x: min(max(hover.point.x, 55), size.width - 55), y: 12)
+            .position(x: min(max(hover.point.x, hoverGutter), size.width - hoverGutter), y: 12)
     }
+
+    private var hoverDateFormat: Date.FormatStyle {
+        showsCalendarDate
+            ? .dateTime.month(.abbreviated).day().hour().minute()
+            : .dateTime.hour().minute()
+    }
+
+    private var hoverGutter: CGFloat { showsCalendarDate ? 88 : 55 }
 }
 
 /// A dashboard metric card: headline value, history chart, average/peak footer.
@@ -169,18 +182,32 @@ struct HistoryChartCard: View {
     let points: [HistoryPoint]
     let scale: ChartScale
     let tint: Color
+    var accessibilityRange: String? = nil
     /// (average, peak) over the visible range, from the store's per-bucket
     /// maxima — a peak recomputed from bucket averages would understate spikes.
     var stats: (average: Double, peak: Double)?
     var format: (Double) -> String = { String(format: "%.0f%%", $0) }
+    var showsCalendarDate = false
     var action: (() -> Void)?
 
     var body: some View {
         Group {
             if let action {
-                Button(action: action) { content }.buttonStyle(.plain)
+                // A Button wrapping the chart loses clicks on macOS — the
+                // hover surface eats them. The card still looks like a
+                // control; the tap is on the card, not an inner NSButton.
+                content
+                    .contentShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+                    .simultaneousGesture(TapGesture().onEnded(action))
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel(label)
+                    .accessibilityValue(accessibilitySummary)
+                    .accessibilityHint("Opens related details")
             } else {
                 content
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(label)
+                    .accessibilityValue(accessibilitySummary)
             }
         }
     }
@@ -189,28 +216,35 @@ struct HistoryChartCard: View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline) {
                 Text(label)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.inkSecondary)
                 Spacer()
                 Text(currentText)
                     .font(.system(size: 17, weight: .semibold).monospacedDigit())
                     .foregroundStyle(tint)
+                if action != nil {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.inkSecondary)
+                        .accessibilityHidden(true)
+                }
             }
             if let subtitle {
                 Text(subtitle)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.inkTertiary)
                     .lineLimit(1)
             }
             if points.count > 1 {
-                HistoryChart(points: points, scale: scale, tint: tint, format: format)
+                HistoryChart(points: points, scale: scale, tint: tint, format: format,
+                             showsCalendarDate: showsCalendarDate)
                     .equatable()
             } else {
                 // A brand-new install has no committed buckets yet. Say so
                 // rather than drawing an empty box that looks broken.
                 Text("Collecting history…")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.inkTertiary)
                     .frame(maxWidth: .infinity, minHeight: 64)
             }
             if let stats {
@@ -219,15 +253,27 @@ struct HistoryChartCard: View {
                     Spacer()
                     Text("peak \(format(stats.peak))")
                 }
-                .font(.system(size: 10).monospacedDigit())
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 11).monospacedDigit())
+                .foregroundStyle(Theme.inkTertiary)
             }
         }
         .padding(13)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.05)))
-        .overlay(RoundedRectangle(cornerRadius: 12)
-            .strokeBorder(action == nil ? Color.clear : tint.opacity(0.15)))
+        .background(ThemeCardBackground(radius: Theme.cardRadius))
+        .contentShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+    }
+
+    private var accessibilitySummary: String {
+        var parts = ["Current \(currentText)"]
+        if let accessibilityRange { parts.append("History range \(accessibilityRange)") }
+        if let subtitle { parts.append(subtitle) }
+        if let stats {
+            parts.append("Average \(format(stats.average))")
+            parts.append("Peak \(format(stats.peak))")
+        } else {
+            parts.append("History is still being collected")
+        }
+        return parts.joined(separator: ". ")
     }
 }
 

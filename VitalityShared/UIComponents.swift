@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 /// Shared between the app and the widget extension so a 90%-full disk looks
@@ -13,9 +14,27 @@ enum Severity {
 
         var color: Color {
             switch self {
-            case .normal:   return .green
-            case .warning:  return .orange
-            case .critical: return .red
+            case .normal:   return Theme.statusGood
+            case .warning:  return Theme.statusWarn
+            case .critical: return Theme.statusCrit
+            }
+        }
+
+        /// A shape cue keeps status understandable when colour is disabled or
+        /// the user has difficulty distinguishing hues.
+        var symbolName: String {
+            switch self {
+            case .normal: return "checkmark.circle.fill"
+            case .warning: return "exclamationmark.triangle.fill"
+            case .critical: return "xmark.octagon.fill"
+            }
+        }
+
+        var accessibilityLabel: String {
+            switch self {
+            case .normal: return "Normal"
+            case .warning: return "Warning"
+            case .critical: return "Critical"
             }
         }
     }
@@ -60,28 +79,66 @@ enum Severity {
     }
 
     static func forUsage(_ percent: Double?) -> Color {
-        level(forUsage: percent)?.color ?? .secondary
+        level(forUsage: percent)?.color ?? Theme.inkSecondary
+    }
+
+    static func forCharge(_ percent: Double?) -> Color {
+        level(forCharge: percent)?.color ?? Theme.inkSecondary
     }
 
     static func forHealth(_ score: Int?) -> Color {
-        level(forHealth: score)?.color ?? .secondary
+        level(forHealth: score)?.color ?? Theme.inkSecondary
+    }
+}
+
+/// Actions inside a SwiftUI `Table` cannot be `Button`s — AppKit's table
+/// eats the click for row selection, so Quit / Open / Trash look live and
+/// do nothing. A tap on a labeled control is delivered.
+struct TableAction: View {
+    let title: String
+    var role: ButtonRole? = nil
+    var enabled: Bool = true
+    let action: () -> Void
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 11))
+            .foregroundStyle(enabled
+                             ? (role == .destructive ? Theme.statusCrit : Theme.ink)
+                             : Theme.inkFaint)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Color.white.opacity(enabled ? 0.08 : 0.04))
+            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .contentShape(Rectangle())
+            .onTapGesture { if enabled { action() } }
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(title)
+            .accessibilityHidden(!enabled)
     }
 }
 
 struct MiniBar: View {
     let percent: Double?
     var height: CGFloat = 4
+    var tint: Color? = nil
+    var accessibilityLabel: String? = nil
 
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.secondary.opacity(0.2))
-                Capsule()
-                    .fill(Severity.forUsage(percent))
-                    .frame(width: geo.size.width * CGFloat(min(max(percent ?? 0, 0), 100) / 100))
+                Capsule().fill(Theme.progressTrack)
+                if let percent {
+                    Capsule()
+                        .fill(tint ?? Severity.forUsage(percent))
+                        .frame(width: geo.size.width * CGFloat(min(max(percent, 0), 100) / 100))
+                }
             }
         }
         .frame(height: height)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(accessibilityLabel ?? "Usage"))
+        .accessibilityValue(Text(Fmt.percent(percent)))
     }
 }
 
@@ -89,14 +146,26 @@ struct HealthRing: View {
     let score: Int?
     var lineWidth: CGFloat = 5
 
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
+
     var body: some View {
         ZStack {
-            Circle().stroke(Color.secondary.opacity(0.2), lineWidth: lineWidth)
+            Circle().stroke(
+                Theme.progressTrack,
+                style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, dash: [1, 4])
+            )
             Circle()
                 .trim(from: 0, to: CGFloat(min(max(score ?? 0, 0), 100)) / 100)
                 .stroke(Severity.forHealth(score),
-                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                        style: StrokeStyle(
+                            lineWidth: lineWidth,
+                            lineCap: .round,
+                            dash: [1, differentiateWithoutColor ? 7 : 4]
+                        ))
                 .rotationEffect(.degrees(-90))
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Health score")
+        .accessibilityValue(Text(score.map { "\($0) out of 100" } ?? "No data"))
     }
 }

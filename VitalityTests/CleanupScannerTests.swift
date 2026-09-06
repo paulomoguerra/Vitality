@@ -239,6 +239,13 @@ final class CleanupScannerTests: XCTestCase {
         XCTAssertTrue(scan().isEmpty, "empty roots produce no rows at all")
     }
 
+    func testCleanWithNothingSelectedFreesNothing() {
+        guard case .success(let bytes) = CleanupScanner.clean([]) else {
+            return XCTFail("an empty selection is a successful no-op")
+        }
+        XCTAssertEqual(bytes, 0)
+    }
+
     func testCategoriesAreOrderedBiggestFirst() throws {
         try write("small.o", in: try makeDirectory("Vitality-abc123", in: derivedData), bytes: 4_096)
         try write("big.bin", in: try makeDirectory("com.example.App", in: caches), bytes: 512_000)
@@ -311,5 +318,39 @@ final class CleanupScannerTests: XCTestCase {
                 .appendingPathComponent(".Trash/Vitality-abc123")
             try? FileManager.default.removeItem(at: trashed)
         }
+    }
+
+    func testCleanSkipsAppleCacheFolders() throws {
+        let apple = try makeDirectory("com.apple.Safari", in: caches)
+        try write("cache.bin", in: apple)
+        let category = CleanupCategory(
+            id: "caches", label: "App caches", icon: "shippingbox.fill",
+            bytes: 4_096, itemCount: 1, kind: .trashable, urls: [apple]
+        )
+
+        guard case .success(let bytes) = CleanupScanner.clean([category]) else {
+            return XCTFail("skipping an Apple cache is a successful no-op")
+        }
+        XCTAssertEqual(bytes, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: apple.path))
+    }
+
+    func testCleanSkipsADownloadThatIsNoLongerStale() throws {
+        let file = try write("old.pdf", in: downloads, bytes: 8_192, age: 120 * day)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(), .creationDate: Date()],
+            ofItemAtPath: file.path
+        )
+        let category = CleanupCategory(
+            id: "old-downloads", label: "Downloads older than 90 days",
+            icon: "clock.arrow.circlepath", bytes: 8_192, itemCount: 1,
+            kind: .trashable, urls: [file]
+        )
+
+        guard case .success(let bytes) = CleanupScanner.clean([category]) else {
+            return XCTFail("a freshly touched download must be skipped, not failed")
+        }
+        XCTAssertEqual(bytes, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
     }
 }

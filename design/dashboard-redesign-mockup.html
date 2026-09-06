@@ -5,31 +5,34 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vitality — mockup do redesign do dashboard</title>
 <style>
-  /* Paleta: instância de referência do método dataviz, modo dark, validada
-     (validate_palette.js: 4 slots categóricos PASS em #1a1a19). */
+  /* Paleta Cochicho — dark bento, one hot accent. */
   :root {
     color-scheme: dark;
-    --page:        #0d0d0d;
-    --window:      #1a1a19;
-    --card:        #222220;
-    --ink:         #ffffff;
-    --ink-2:       #c3c2b7;
-    --ink-3:       #898781;
-    --grid:        #2c2c2a;
-    --hairline:    rgba(255,255,255,0.10);
-    --s-cpu:       #3987e5;  /* slot 1 azul   */
-    --s-gpu:       #d95926;  /* slot 2 laranja*/
-    --s-ram:       #199e70;  /* slot 3 água   */
-    --s-disk:      #c98500;  /* slot 4 amarelo*/
-    --st-good:     #0ca30c;
-    --st-warn:     #fab219;
-    --st-serious:  #ec835a;
-    --st-crit:     #d03b3b;
-    --accent:      #3987e5;
+    --page:        #131211;
+    --window:      #131211;
+    --card:        #1D1C1B;
+    --ink:         #EDE8E0;
+    --ink-2:       rgba(255,255,255,0.42);
+    --ink-3:       rgba(255,255,255,0.22);
+    --grid:        rgba(255,255,255,0.08);
+    --hairline:    rgba(255,255,255,0.06);
+    --track:       rgba(255,255,255,0.12);
+    --chip:        rgba(255,255,255,0.06);
+    --s-cpu:       #5C9EFA;
+    --s-gpu:       #A885EB;
+    --s-ram:       #47C7AD;
+    --s-disk:      #E0A12E;
+    --st-good:     #59D98C;
+    --st-warn:     #E0A020;
+    --st-crit:     #FF4500;
+    --accent:      #FF4500;
+    --accent-soft: rgba(255,69,0,0.25);
+    --icon-circle: rgba(255,255,255,0.07);
+    --shadow:      rgba(0,0,0,0.45);
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    background: radial-gradient(1200px 700px at 30% 0%, #1d2733 0%, var(--page) 55%);
+    background: var(--page);
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
     color: var(--ink);
     display: flex; flex-direction: column; align-items: center;
@@ -42,17 +45,17 @@
   /* ── Janela macOS ─────────────────────────────────────────── */
   .window {
     width: 1180px; max-width: 100%;
-    background: var(--window);
+    background: var(--page);
     border-radius: 12px;
     border: 1px solid var(--hairline);
-    box-shadow: 0 30px 80px rgba(0,0,0,.55), 0 2px 10px rgba(0,0,0,.4);
+    box-shadow: 0 16px 40px var(--shadow);
     overflow: hidden;
     display: grid; grid-template-columns: 208px 1fr;
   }
 
   /* Sidebar */
   .sidebar {
-    background: rgba(255,255,255,0.035);
+    background: var(--window);
     border-right: 1px solid var(--hairline);
     padding: 14px 10px 16px;
     display: flex; flex-direction: column; gap: 2px;
@@ -66,11 +69,11 @@
     font-size: 13px; color: var(--ink-2);
     padding: 6px 10px; border-radius: 7px;
   }
-  .nav-item.active { background: rgba(57,135,229,0.22); color: var(--ink); }
+  .nav-item.active { background: var(--accent-soft); color: var(--ink); }
   .nav-item .ico { width: 17px; text-align: center; font-size: 13px; }
   .badge-new {
     margin-left: auto; font-size: 9px; font-weight: 700; letter-spacing: .04em;
-    color: #0d0d0d; background: var(--st-warn); border-radius: 4px; padding: 1.5px 5px;
+    color: #fff; background: var(--st-warn); border-radius: 4px; padding: 1.5px 5px;
   }
   .badge-dot { margin-left: auto; min-width: 16px; height: 16px; border-radius: 8px; background: var(--st-crit); color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; padding: 0 4px; }
   .sidebar .spacer { flex: 1; }
@@ -83,18 +86,18 @@
 
   .topbar { display: flex; align-items: center; gap: 12px; }
   .topbar h1 { font-size: 15px; font-weight: 600; }
-  .seg { margin-left: auto; display: flex; background: rgba(255,255,255,0.06); border: 1px solid var(--hairline); border-radius: 7px; padding: 2px; }
+  .seg { margin-left: auto; display: flex; background: var(--chip); border: 1px solid var(--hairline); border-radius: 7px; padding: 2px; }
   .seg button {
     all: unset; font-family: inherit; font-size: 11.5px; color: var(--ink-2);
     padding: 3.5px 12px; border-radius: 5px; cursor: pointer;
   }
-  .seg button.on { background: rgba(255,255,255,0.12); color: var(--ink); font-weight: 600; }
-  .tool { font-size: 11.5px; color: var(--ink-2); border: 1px solid var(--hairline); border-radius: 7px; padding: 4.5px 11px; background: rgba(255,255,255,0.04); }
+  .seg button.on { background: var(--card); color: var(--ink); font-weight: 600; }
+  .tool { font-size: 11.5px; color: var(--ink-2); border: 1px solid var(--hairline); border-radius: 7px; padding: 4.5px 11px; background: var(--card); }
 
   /* Header de saúde */
   .health {
     display: flex; align-items: center; gap: 18px;
-    background: linear-gradient(100deg, rgba(12,163,12,0.10), rgba(12,163,12,0.03) 60%, transparent);
+    background: linear-gradient(100deg, rgba(89,217,140,0.12), rgba(89,217,140,0.03) 60%, var(--card));
     border: 1px solid var(--hairline); border-radius: 12px; padding: 14px 18px;
   }
   .ring { position: relative; width: 72px; height: 72px; flex: none; }
@@ -107,7 +110,7 @@
   .health .meta { font-size: 11px; color: var(--ink-3); margin-top: 5px; display: flex; gap: 14px; }
   .chips { margin-left: auto; display: flex; gap: 8px; }
   .chip {
-    text-align: right; border: 1px solid var(--hairline); background: rgba(255,255,255,0.04);
+    text-align: right; border: 1px solid var(--hairline); background: var(--card);
     border-radius: 9px; padding: 7px 12px; min-width: 92px;
   }
   .chip b { font-size: 15px; font-weight: 600; display: block; font-variant-numeric: tabular-nums; }
@@ -117,16 +120,17 @@
   .alerts { display: flex; flex-direction: column; gap: 7px; }
   .alert {
     display: flex; align-items: center; gap: 11px;
+    background: var(--card);
     border: 1px solid var(--hairline); border-radius: 10px; padding: 9px 13px; font-size: 12px;
   }
   .alert .aico { width: 18px; text-align: center; font-size: 14px; }
-  .alert.warn { background: rgba(250,178,25,0.08); } .alert.warn .aico { color: var(--st-warn); }
-  .alert.crit { background: rgba(208,59,59,0.10); } .alert.crit .aico { color: var(--st-crit); }
+  .alert.warn { background: rgba(224,160,32,0.12); } .alert.warn .aico { color: var(--st-warn); }
+  .alert.crit { background: rgba(255,69,0,0.12); } .alert.crit .aico { color: var(--st-crit); }
   .alert b { font-weight: 600; }
   .alert .why { color: var(--ink-2); }
   .alert .act {
     margin-left: auto; flex: none; font-size: 11.5px; font-weight: 600; color: var(--ink);
-    background: rgba(255,255,255,0.10); border: 1px solid var(--hairline);
+    background: var(--card); border: 1px solid var(--hairline);
     border-radius: 6px; padding: 4px 11px;
   }
   .alert .mute { flex: none; color: var(--ink-3); font-size: 11px; margin-left: 4px; }
@@ -150,8 +154,8 @@
   /* Tooltip demonstrado (camada de hover) */
   .tip {
     position: absolute; left: 58%; top: -6px;
-    background: #2f2f2d; border: 1px solid var(--hairline); border-radius: 7px;
-    padding: 6px 9px; font-size: 10.5px; box-shadow: 0 6px 18px rgba(0,0,0,.5);
+    background: var(--card); border: 1px solid var(--hairline); border-radius: 7px;
+    padding: 6px 9px; font-size: 10.5px; box-shadow: 0 8px 20px rgba(0,0,0,.4);
     white-space: nowrap; z-index: 2;
   }
   .tip b { font-variant-numeric: tabular-nums; }
@@ -172,7 +176,7 @@
     margin-top: 10px; display: flex; align-items: center; gap: 10px;
   }
   .clean-cta .btn {
-    font-size: 12px; font-weight: 600; color: #fff; background: var(--accent);
+    font-size: 12px; font-weight: 600; color: #000; background: var(--accent);
     border-radius: 7px; padding: 6px 14px;
   }
   .clean-cta span { font-size: 11px; color: var(--ink-3); }
@@ -180,7 +184,7 @@
   /* Atividade */
   .proc { display: flex; align-items: center; gap: 10px; font-size: 12px; padding: 6px 0; border-top: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
   .proc:first-of-type { border-top: 0; }
-  .proc .bar { flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.08); position: relative; overflow: hidden; }
+  .proc .bar { flex: 1; height: 4px; border-radius: 2px; background: var(--track); position: relative; overflow: hidden; }
   .proc .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 2px; background: var(--s-cpu); }
   .proc .pc { width: 52px; text-align: right; font-weight: 600; }
   .proc .mem { width: 64px; text-align: right; color: var(--ink-3); }
@@ -190,7 +194,7 @@
 </head>
 <body>
 
-<div class="caption"><b>Vitality — redesign do dashboard (mockup)</b> · dark mode · itens marcados <b style="color:var(--st-warn)">NOVO</b> são as funcionalidades propostas</div>
+<div class="caption"><b>Vitality — redesign do dashboard (mockup)</b> · dark + orange · itens marcados <b style="color:var(--st-warn)">NOVO</b> são as funcionalidades propostas</div>
 
 <div class="window">
 
@@ -228,7 +232,7 @@
     <section class="health">
       <div class="ring">
         <svg width="72" height="72" viewBox="0 0 72 72">
-          <circle cx="36" cy="36" r="31" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="6"/>
+          <circle cx="36" cy="36" r="31" fill="none" stroke="var(--track)" stroke-width="6"/>
           <circle cx="36" cy="36" r="31" fill="none" stroke="var(--st-good)" stroke-width="6"
                   stroke-linecap="round" stroke-dasharray="194.8" stroke-dashoffset="35"/>
         </svg>
@@ -271,7 +275,7 @@
           <div class="tip"><span class="tt">14:32</span><div class="row"><i class="sw" style="background:var(--s-cpu)"></i><b>62%</b>&nbsp;pico do build</div></div>
           <svg viewBox="0 0 210 74" aria-label="CPU nas últimas 24 horas">
             <g stroke="var(--grid)" stroke-width="1"><line x1="0" y1="37" x2="210" y2="37"/><line x1="0" y1="73" x2="210" y2="73"/></g>
-            <path d="M0,62 L18,58 L36,60 L54,50 L72,54 L90,44 L108,48 L126,22 L138,18 L150,34 L168,52 L186,48 L210,45 L210,73 L0,73 Z" fill="rgba(57,135,229,0.16)"/>
+            <path d="M0,62 L18,58 L36,60 L54,50 L72,54 L90,44 L108,48 L126,22 L138,18 L150,34 L168,52 L186,48 L210,45 L210,73 L0,73 Z" fill="rgba(92,158,250,0.16)"/>
             <path d="M0,62 L18,58 L36,60 L54,50 L72,54 L90,44 L108,48 L126,22 L138,18 L150,34 L168,52 L186,48 L210,45" fill="none" stroke="var(--s-cpu)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
             <line x1="132" y1="4" x2="132" y2="73" stroke="var(--ink-3)" stroke-width="1" stroke-dasharray="3 3"/>
             <circle cx="132" cy="20" r="4.5" fill="var(--s-cpu)" stroke="var(--card)" stroke-width="2"/>
@@ -286,7 +290,7 @@
         <div class="chart">
           <svg viewBox="0 0 210 74" aria-label="GPU nas últimas 24 horas">
             <g stroke="var(--grid)" stroke-width="1"><line x1="0" y1="37" x2="210" y2="37"/><line x1="0" y1="73" x2="210" y2="73"/></g>
-            <path d="M0,68 L20,66 L40,67 L60,60 L80,64 L100,52 L120,58 L140,40 L158,55 L176,63 L210,64 L210,73 L0,73 Z" fill="rgba(217,89,38,0.15)"/>
+            <path d="M0,68 L20,66 L40,67 L60,60 L80,64 L100,52 L120,58 L140,40 L158,55 L176,63 L210,64 L210,73 L0,73 Z" fill="rgba(168,133,235,0.15)"/>
             <path d="M0,68 L20,66 L40,67 L60,60 L80,64 L100,52 L120,58 L140,40 L158,55 L176,63 L210,64" fill="none" stroke="var(--s-gpu)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
           </svg>
         </div>
@@ -299,7 +303,7 @@
         <div class="chart">
           <svg viewBox="0 0 210 74" aria-label="Memória nas últimas 24 horas">
             <g stroke="var(--grid)" stroke-width="1"><line x1="0" y1="37" x2="210" y2="37"/><line x1="0" y1="73" x2="210" y2="73"/></g>
-            <path d="M0,34 L24,32 L48,35 L72,28 L96,30 L120,24 L144,27 L168,22 L190,25 L210,22 L210,73 L0,73 Z" fill="rgba(25,158,112,0.15)"/>
+            <path d="M0,34 L24,32 L48,35 L72,28 L96,30 L120,24 L144,27 L168,22 L190,25 L210,22 L210,73 L0,73 Z" fill="rgba(71,199,173,0.15)"/>
             <path d="M0,34 L24,32 L48,35 L72,28 L96,30 L120,24 L144,27 L168,22 L190,25 L210,22" fill="none" stroke="var(--s-ram)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
           </svg>
         </div>
@@ -312,7 +316,7 @@
         <div class="chart">
           <svg viewBox="0 0 210 74" aria-label="Uso do disco nas últimas 24 horas">
             <g stroke="var(--grid)" stroke-width="1"><line x1="0" y1="37" x2="210" y2="37"/><line x1="0" y1="73" x2="210" y2="73"/></g>
-            <path d="M0,22 L40,21 L80,20 L120,18 L150,16 L180,14 L210,13 L210,73 L0,73 Z" fill="rgba(201,133,0,0.14)"/>
+            <path d="M0,22 L40,21 L80,20 L120,18 L150,16 L180,14 L210,13 L210,73 L0,73 Z" fill="rgba(224,161,46,0.14)"/>
             <path d="M0,22 L40,21 L80,20 L120,18 L150,16 L180,14 L210,13" fill="none" stroke="var(--s-disk)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
           </svg>
         </div>
@@ -385,7 +389,7 @@
 </div>
 
 <div class="caption" style="margin-top:18px">
-  Gráficos com dados ilustrativos · paleta categórica validada (CVD ΔE ≥ 8,4 · contraste ≥ 3:1 no dark) ·
+  Gráficos com dados ilustrativos · paleta Cochicho dark + orange (CPU/GPU/RAM/Disco · status good/warn/crit) ·
   hover demonstrado no card de CPU (crosshair + tooltip)
 </div>
 
