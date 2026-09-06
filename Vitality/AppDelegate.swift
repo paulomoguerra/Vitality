@@ -4,10 +4,12 @@ import OSLog
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private let log = Logger(subsystem: "com.paulomateus.vitality", category: "app")
     private var menuBar: MenuBarStatusItemController!
-    private var settings: MenuBarSettings!
+    /// Created before the Settings scene is rendered, so the native Settings
+    /// window and the menu bar always edit the same object.
+    private let settings = MenuBarSettings()
     private var history: MenuBarHistory!
     private var popover: NSPopover!
     private var poller: StatusPoller!
@@ -17,26 +19,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var eventMonitor: Any?
     private var launchAtLoginObservation: AnyCancellable?
 
+    /// Settings is a SwiftUI scene, while the monitor is owned by AppKit. A
+    /// published handoff keeps the scene unavailable only during the very short
+    /// launch gap and avoids a second poller or AlertCenter.
+    @Published private(set) var statusPollerForUI: StatusPoller?
+    @Published private(set) var alertCenterForUI: AlertCenter?
+    @Published private(set) var menuBarHistoryForUI: MenuBarHistory?
+
+    var settingsForUI: MenuBarSettings { settings }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        settings = MenuBarSettings()
         launchAtLoginObservation = settings.$launchAtLogin
             .dropFirst()
             .sink { enabled in
                 LoginItem.apply(enabled: enabled)
             }
-        LoginItem.apply(enabled: settings.launchAtLogin)
+        // Register only after the person has explicitly configured this
+        // preference. The first launch must not create a login item silently.
+        if settings.hasConfiguredLaunchAtLogin {
+            LoginItem.apply(enabled: settings.launchAtLogin)
+        }
 
         poller = StatusPoller()
+        statusPollerForUI = poller
         // Both live for the whole session, not the dashboard window's: history
         // accrues and alerts watch (and notify) whether or not any UI is open.
         metricsHistory = MetricsHistoryStore(poller: poller)
         alerts = AlertCenter(poller: poller)
+        alertCenterForUI = alerts
         dashboard = DashboardWindowController(poller: poller,
                                               history: metricsHistory,
                                               alerts: alerts)
+        alerts.onOpenAlert = { [weak self] rule in
+            self?.dashboard.show(alert: rule)
+        }
 
         history = MenuBarHistory(poller: poller, settings: settings)
-        menuBar = MenuBarStatusItemController(poller: poller, settings: settings, history: history)
+        menuBarHistoryForUI = history
+        menuBar = MenuBarStatusItemController(poller: poller, settings: settings,
+                                              history: history, alerts: alerts)
         if let button = menuBar.button {
             button.action = #selector(togglePopover(_:))
             button.target = self
@@ -45,13 +66,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover = NSPopover()
         popover.behavior = .transient
         popover.delegate = self
+        popover.appearance = NSAppearance(named: .darkAqua)
         popover.contentViewController = NSHostingController(
             rootView: MenuBarView(poller: poller,
                                   settings: settings,
                                   history: history,
-                                  onOpenDashboard: { [weak self] in
-                self?.openDashboard()
+                                  alerts: alerts,
+                                  onOpenDashboard: { [weak self] section in
+                self?.openDashboard(section: section)
+            },
+                                  onOpenSettings: { [weak self] in
+                self?.openSettings()
+            },
+                                  onOpenAlert: { [weak self] rule in
+                self?.popover.performClose(nil)
+                self?.dashboard.show(alert: rule)
             })
+            .preferredColorScheme(.dark)
         )
 
         // No setup step: Vitality measures everything itself, so it works the
@@ -62,6 +93,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         removeEventMonitor()
         metricsHistory.flush()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication,
+                                       hasVisibleWindows flag: Bool) -> Bool {
+        guard !flag, dashboard != nil else { return true }
+        dashboard.show()
+        return true
+    }
+
+    /// Deep links keep notifications, widgets and other macOS surfaces on the
+    /// same route. The URL scheme itself is declared in project.yml; this
+    /// handler deliberately accepts only dashboard sections we know.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            guard url.scheme == "vitality", url.host == "dashboard",
+                  let rawSection = url.pathComponents.dropFirst().first,
+                  let section = DashboardSection.allCases.first(where: {
+                      $0.rawValue.caseInsensitiveCompare(rawSection) == .orderedSame
+                  }),
+                  let dashboard else { continue }
+            dashboard.show(section: section)
+        }
     }
 
     /// Backstop for `.transient`, which doesn't always close a status-item
@@ -81,11 +134,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         eventMonitor = nil
     }
 
-    private func openDashboard() {
+    private func openDashboard(section: DashboardSection? = nil) {
         // Close the popover first — it's `.transient`, and leaving it up while
         // a real window takes focus looks like a glitch.
         popover.performClose(nil)
-        dashboard.show()
+        if let section {
+            dashboard.show(section: section)
+        } else {
+            dashboard.show()
+        }
+    }
+
+    private func openSettings() {
+        popover.performClose(nil)
+        // `Settings` scene owns the actual window and command routing. This is
+        // the AppKit bridge that lets a compact menu bar button reach it.
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func togglePopover(_ sender: AnyObject?) {

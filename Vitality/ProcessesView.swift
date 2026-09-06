@@ -1,5 +1,14 @@
 import SwiftUI
 
+/// Initial table context used when Activity is opened from an alert. The
+/// process list remains a native, dense table; only its starting query/order
+/// changes so the alert's evidence is immediately visible.
+enum ProcessSort: Hashable {
+    case cpu
+    case memory
+    case name
+}
+
 struct ProcessesView: View {
     @State private var processes: [RunningProcess] = []
     @State private var query = ""
@@ -20,52 +29,127 @@ struct ProcessesView: View {
         return filtered.sorted(using: sortOrder)
     }
 
+    init(initialQuery: String = "", initialSort: ProcessSort = .cpu) {
+        _query = State(initialValue: initialQuery)
+        let comparator: KeyPathComparator<RunningProcess>
+        switch initialSort {
+        case .cpu:
+            comparator = KeyPathComparator(\RunningProcess.cpu, order: .reverse)
+        case .memory:
+            comparator = KeyPathComparator(\RunningProcess.memoryBytes, order: .reverse)
+        case .name:
+            comparator = KeyPathComparator(\RunningProcess.name, order: .forward)
+        }
+        _sortOrder = State(initialValue: [comparator])
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Processes")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Theme.ink)
+                    Text("Live process activity")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.inkSecondary)
+                }
+
+                Spacer()
+
                 TextField("Filter processes", text: $query)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 240)
-                Spacer()
-                Text("\(visible.count) of \(processes.count)")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .accessibilityLabel("Filter processes")
+                Button {
+                    reload()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityLabel("Refresh processes")
+                .help("Refresh process list")
             }
 
-            Table(visible, sortOrder: $sortOrder) {
-                TableColumn("Process", value: \.name) { process in
-                    Text(process.name).font(.system(size: 12)).lineLimit(1)
-                }
-                TableColumn("PID", value: \.pid) { process in
-                    Text(verbatim: "\(process.pid)")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
-                .width(60)
-                TableColumn("CPU", value: \.cpu) { process in
-                    Text(Fmt.percent(process.cpu, decimals: 1))
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Severity.forUsage(process.cpu))
-                }
-                .width(64)
-                TableColumn("Memory", value: \.memoryBytes) { process in
-                    Text(Fmt.bytes(process.memoryBytes)).font(.system(size: 11))
-                }
-                .width(80)
-                TableColumn("") { process in
-                    Button("Quit") { pendingQuit = process }
+            HStack(spacing: 8) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Theme.statusGood)
+                    .accessibilityHidden(true)
+                Text("Live")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.statusGood)
+                Text("\(visible.count) visible of \(processes.count)")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.inkSecondary)
+                if let busiest = visible.max(by: { $0.cpu < $1.cpu }) {
+                    Text("Highest CPU: \(busiest.name) · \(Fmt.percent(busiest.cpu, decimals: 1))")
                         .font(.system(size: 11))
-                        .disabled(!process.isOwnedByCurrentUser)
+                        .foregroundStyle(Theme.inkSecondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+            }
+
+            if visible.isEmpty && !query.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 22))
+                        .foregroundStyle(Theme.inkTertiary)
+                    Text("No processes match \"\(query)\"")
+                        .font(Theme.body(13, .medium))
+                        .foregroundStyle(Theme.ink)
+                    Button("Clear filter") { query = "" }
+                }
+                .frame(maxWidth: .infinity, minHeight: 240)
+                .background(ThemeCardBackground(radius: Theme.nestedRadius))
+            } else {
+                Table(visible, sortOrder: $sortOrder) {
+                    TableColumn("Process", value: \.name) { process in
+                        Text(process.name)
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.ink)
+                            .lineLimit(1)
+                    }
+                    TableColumn("PID", value: \.pid) { process in
+                        Text(verbatim: "\(process.pid)")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(Theme.inkSecondary)
+                    }
+                    .width(60)
+                    TableColumn("CPU", value: \.cpu) { process in
+                        Text(Fmt.percent(process.cpu, decimals: 1))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Severity.forUsage(process.cpu))
+                    }
+                    .width(64)
+                    TableColumn("Memory", value: \.memoryBytes) { process in
+                        Text(Fmt.bytes(process.memoryBytes))
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.ink)
+                    }
+                    .width(80)
+                    TableColumn("") { process in
+                        TableAction(title: "Quit",
+                                    enabled: process.isOwnedByCurrentUser) {
+                            pendingQuit = process
+                        }
+                        .accessibilityLabel("Quit \(process.name)")
                         .help(process.isOwnedByCurrentUser
                               ? "Ask \(process.name) to quit"
                               : "Owned by another user — Vitality can't quit it")
+                    }
+                    .width(52)
                 }
-                .width(52)
+                .frame(minHeight: 240)
             }
-            .frame(minHeight: 240)
 
-            Text("Click a column header to sort. System processes owned by root can't be quit from here — that's macOS, not Vitality.")
-                .font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Click a column header to sort. System processes owned by another user cannot be quit from Vitality.")
+                .font(.system(size: 10)).foregroundStyle(Theme.inkTertiary)
         }
+        .padding(13)
+        .background(ThemeCardBackground())
         .onAppear(perform: start)
         .onDisappear { refreshTimer?.invalidate(); refreshTimer = nil }
         .confirmationDialog(
@@ -74,11 +158,13 @@ struct ProcessesView: View {
                                  set: { if !$0 { pendingQuit = nil } }),
             titleVisibility: .visible
         ) {
-            if let target = pendingQuit {
-                Button("Quit") { quit(target, force: false) }
-                Button("Force Quit", role: .destructive) { quit(target, force: true) }
-                Button("Cancel", role: .cancel) { pendingQuit = nil }
+            Button("Quit") {
+                if let target = pendingQuit { quit(target, force: false) }
             }
+            Button("Force Quit", role: .destructive) {
+                if let target = pendingQuit { quit(target, force: true) }
+            }
+            Button("Cancel", role: .cancel) { pendingQuit = nil }
         } message: {
             Text("Quit asks the app to close and save. Force Quit ends it immediately — unsaved work is lost.")
         }

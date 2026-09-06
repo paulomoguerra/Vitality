@@ -55,8 +55,13 @@ struct SystemStatus: Codable {
         let isInternal: Bool?
         let isRemovable: Bool?
 
-        var id: String { mount ?? name ?? UUID().uuidString }
-        var free: Int64 { max(0, (total ?? 0) - (used ?? 0)) }
+        // Stable even when both names are missing. A fresh UUID here would
+        // change on every SwiftUI render and rebuild the volume row.
+        var id: String { mount ?? name ?? "disk" }
+        var free: Int64? {
+            guard let total, let used else { return nil }
+            return max(0, total - used)
+        }
 
         /// "Macintosh HD" beats a bare "/", and a volume name beats a long path.
         var displayName: String {

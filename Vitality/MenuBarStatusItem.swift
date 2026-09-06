@@ -15,11 +15,15 @@ final class MenuBarStatusItemController {
 
     /// Exposed so the app delegate can hang the click action off it.
     var button: NSStatusBarButton? { statusItem.button }
+    var isVisible: Bool { statusItem.isVisible }
 
-    init(poller: StatusPoller, settings: MenuBarSettings, history: MenuBarHistory) {
+    init(poller: StatusPoller, settings: MenuBarSettings, history: MenuBarHistory,
+         alerts: AlertCenter) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.autosaveName = "VitalityStatusItem"
         hostingView = PassthroughHostingView(
-            rootView: MenuBarStatusView(poller: poller, settings: settings, history: history)
+            rootView: MenuBarStatusView(poller: poller, settings: settings,
+                                        history: history, alerts: alerts)
         )
 
         hostingView.rootView.onWidthChange = { [weak self] width in
@@ -31,6 +35,8 @@ final class MenuBarStatusItemController {
             // built-in image would be a second, duplicate gauge.
             button.image = nil
             button.setAccessibilityLabel("Vitality")
+            button.setAccessibilityHelp("Open the Vitality system monitor")
+            button.toolTip = "Vitality system monitor"
 
             hostingView.translatesAutoresizingMaskIntoConstraints = false
             button.addSubview(hostingView)
@@ -59,11 +65,14 @@ struct MenuBarStatusView: View {
     @ObservedObject var poller: StatusPoller
     @ObservedObject var settings: MenuBarSettings
     @ObservedObject var history: MenuBarHistory
+    @ObservedObject var alerts: AlertCenter
 
     var onWidthChange: (CGFloat) -> Void = { _ in }
 
     var body: some View {
-        MenuBarStrip(status: poller.latest, settings: settings, samples: history.samples(for:))
+        MenuBarStrip(status: poller.latest, settings: settings,
+                     samples: history.samples(for:),
+                     alertLevel: alerts.active.first?.severity)
             .fixedSize()
             .frame(maxHeight: .infinity)
             .background(
@@ -73,6 +82,23 @@ struct MenuBarStatusView: View {
                     }
                 }
             )
+            // The strip stays intentionally terse. VoiceOver receives one
+            // stable summary instead of trying to interpret sparkline paths.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Vitality system monitor")
+            .accessibilityValue(accessibilitySummary)
+    }
+
+    private var accessibilitySummary: String {
+        guard let status = poller.latest else { return "Collecting system status" }
+        var parts = ["Health \(status.healthScore.map(String.init) ?? "unknown")"]
+        if let alert = alerts.active.first {
+            parts.append("\(alert.severity.accessibilityLabel) alert: \(alert.title)")
+        }
+        parts.append(contentsOf: settings.displayedMetrics.map { metric in
+            "\(metric.label) \(metric.reading(from: status).text)"
+        })
+        return parts.joined(separator: ", ")
     }
 }
 

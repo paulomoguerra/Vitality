@@ -32,17 +32,17 @@ Each reading reserves room for its widest possible value, so a Mac going from 9%
 | Power / Battery | What the Mac is drawing, what is coming in over the cable, what the difference is going to, plus battery health, max capacity and cycle count |
 | Top process | The heaviest processes with PID and memory |
 
-**Dashboard** (`Open Dashboard…`) — a sidebar of seven sections:
+**Dashboard** (`Open dashboard…`) — five focused destinations:
 
 - **Overview** — health ring, active alerts, and CPU/GPU/memory/disk charts over the last hour, day or week, with average and true peak. History persists across relaunches (`~/Library/Application Support/Vitality/history.json`).
-- **Activity** — the full process table, filterable and sortable by CPU, memory or name. Quit or Force Quit anything you own.
-- **Network** — live download/upload, session totals, and throughput history per range. Measured across the Mac's physical interfaces via `getifaddrs`.
+- **Activity** — the full process table plus live network activity. Processes are filterable and sortable by CPU, memory or name; network includes download/upload, session totals, and history. Quit or Force Quit anything you own.
 - **Storage** — every volume, a size-sorted folder browser you can drill into, exact-duplicate finder, and **Free up**: reclaim Xcode DerivedData, app caches and stale downloads — always via the Trash.
-- **Battery** — charge, condition, max capacity and cycles, plus a capacity-over-time chart built from one health sample per day.
+- **Power** — live draw, adapter input, battery charge, condition, max capacity and cycles, plus a capacity-over-time chart built from one health sample per day. Desktop Macs keep the power view without an empty battery screen.
 - **Sensors** — every temperature sensor the Mac reports, grouped by what it measures, with the raw SMC key beside each reading
-- **Alerts** — native notifications with hysteresis: disk almost full, sustained CPU, heavy swapping, high temperature, low battery. Sustained conditions must hold before firing, alerts renotify at most every 6 hours, and each rule can be toggled or snoozed.
 
-**Widgets** — small, medium and large, in Notification Centre and on the desktop.
+**Alerts** use native notifications with hysteresis: disk almost full, sustained CPU, heavy swapping, high temperature, and low battery. Sustained conditions must hold before firing, alerts renotify at most every 6 hours, and each rule can be toggled or snoozed in Settings. Clicking an alert opens the dashboard area that can help resolve it.
+
+**Widgets** — small, medium and large, in Notification Centre and on the desktop. Clicking one opens the dashboard.
 
 **Buy me a coffee** — `Buy me a coffee…` in the popover shows a Lightning QR to scan, a one-tap copy of the address, and an `Open in wallet` handoff for desktop wallets. Entirely optional, never nagged about, and it costs nothing to ignore.
 
@@ -76,7 +76,7 @@ macOS 14 (Sonoma) or later. That's it.
 
 Open `build/Vitality-<version>.dmg` and drag Vitality to Applications. That's the whole install.
 
-**The widgets need the app to be running.** Vitality registers itself as a login item on first launch, so this normally takes care of itself. To add a widget: right-click the desktop or open Notification Centre → Edit Widgets → search for Vitality.
+**The widgets need the app to be running.** Enable `Launch Vitality at login` in Settings if you want monitoring to resume automatically after login. To add a widget: right-click the desktop or open Notification Centre → Edit Widgets → search for Vitality.
 
 ### Why there's no download link yet
 

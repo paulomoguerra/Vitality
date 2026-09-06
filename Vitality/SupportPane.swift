@@ -76,9 +76,26 @@ struct SupportPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            PaneHeader(title: "Buy me a coffee", back: back)
+            PaneHeader(title: "About Vitality", back: back)
 
-            Text("Vitality is free, and stays free. If it earned its place in your menu bar, a coffee over Lightning is very welcome.")
+            HStack(spacing: 10) {
+                Image(systemName: "gauge.medium")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 34, height: 34)
+                    .background(Theme.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Vitality")
+                        .font(Theme.mono(14, .semibold))
+                    Text("Local system monitoring for Mac")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.inkSecondary)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 10)
+
+            Text("Vitality is free and local. If it earned its place in your menu bar, a coffee over Lightning helps keep it maintained.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

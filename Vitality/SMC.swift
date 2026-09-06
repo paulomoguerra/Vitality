@@ -154,9 +154,14 @@ final class SMC {
             return Double(Float(bitPattern: bits))
         case "ioft":
             // 8-byte fixed point, 48.16 — the SMC's usual float on Apple silicon.
-            let whole = UInt64(b[0]) << 48 | UInt64(b[1]) << 40 | UInt64(b[2]) << 32
-                | UInt64(b[3]) << 24 | UInt64(b[4]) << 16 | UInt64(b[5]) << 8 | UInt64(b[6])
+            let whole = UInt64(b[0]) << 56 | UInt64(b[1]) << 48 | UInt64(b[2]) << 40
+                | UInt64(b[3]) << 32 | UInt64(b[4]) << 24 | UInt64(b[5]) << 16
+                | UInt64(b[6]) << 8 | UInt64(b[7])
             return Double(whole) / 65_536
+        case "sp78":
+            // Signed 7.8 — Intel SMC temperatures.
+            let raw = Int16(bitPattern: UInt16(b[0]) << 8 | UInt16(b[1]))
+            return Double(raw) / 256
         case "ui8 ":
             return Double(b[0])
         case "ui16":

@@ -14,6 +14,7 @@ final class DashboardWindowController {
     private let poller: StatusPoller
     private let history: MetricsHistoryStore
     private let alerts: AlertCenter
+    private let router = DashboardRouter()
 
     init(poller: StatusPoller, history: MetricsHistoryStore, alerts: AlertCenter) {
         self.poller = poller
@@ -21,7 +22,19 @@ final class DashboardWindowController {
         self.alerts = alerts
     }
 
+    /// Brings the dashboard forward without changing the current destination.
+    /// Generic “Open dashboard…” must not bounce an already-open window back
+    /// to Overview.
     func show() {
+        presentWindow()
+    }
+
+    func show(section: DashboardSection) {
+        router.open(section)
+        presentWindow()
+    }
+
+    private func presentWindow() {
         if let window {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -29,12 +42,22 @@ final class DashboardWindowController {
         }
 
         let hosting = NSHostingController(
-            rootView: DashboardView(poller: poller, history: history, alerts: alerts))
+            rootView: DashboardView(poller: poller, history: history, alerts: alerts, router: router)
+                .preferredColorScheme(.dark)
+        )
         let window = NSWindow(contentViewController: hosting)
         window.title = "Vitality"
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.setContentSize(NSSize(width: 720, height: 520))
-        window.center()
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.setContentSize(NSSize(width: 1020, height: 680))
+        window.minSize = NSSize(width: 760, height: 500)
+        window.setFrameAutosaveName("VitalityDashboard")
+        window.backgroundColor = Theme.pageBgNS
+        window.appearance = NSAppearance(named: .darkAqua)
+        if !window.setFrameUsingName("VitalityDashboard") {
+            window.center()
+        }
         window.isReleasedWhenClosed = false
 
         // Tear the window down on close rather than keeping it around. A kept
@@ -58,5 +81,10 @@ final class DashboardWindowController {
         self.window = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func show(alert rule: AlertRuleID) {
+        router.open(alert: rule)
+        presentWindow()
     }
 }

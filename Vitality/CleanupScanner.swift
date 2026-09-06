@@ -20,6 +20,9 @@ struct CleanupCategory: Identifiable, Hashable {
     let kind: Kind
     /// The concrete file URLs that would be trashed (empty for `.trashBin`).
     let urls: [URL]
+
+    /// Caches and DerivedData come back. Old downloads do not.
+    var isRebuildable: Bool { kind == .trashable && id != "old-downloads" }
 }
 
 /// Finds disk space that is safe to give back.
@@ -59,7 +62,8 @@ enum CleanupScanner {
     /// volume, which is the number a user reclaims — logical size overstates
     /// sparse files and understates block padding.
     private static let sizeKeys: [URLResourceKey] = [
-        .isDirectoryKey, .totalFileAllocatedSizeKey, .fileAllocatedSizeKey,
+        .isDirectoryKey, .isSymbolicLinkKey,
+        .totalFileAllocatedSizeKey, .fileAllocatedSizeKey,
     ]
 
     /// Walks the four categories and sizes them. Slow — call off the main thread.
@@ -118,14 +122,22 @@ enum CleanupScanner {
 
         for category in categories where category.kind == .trashable {
             for url in category.urls {
+                if url.lastPathComponent.hasPrefix("com.apple.") { continue }
+                if category.id == "old-downloads" {
+                    let values = try? url.resourceValues(forKeys: [
+                        .contentModificationDateKey, .creationDateKey,
+                    ])
+                    guard isStale(values?.contentModificationDate,
+                                  values?.creationDate, now: Date()) else { continue }
+                }
                 attempted += 1
                 let size = allocatedSize(url)
-                do {
-                    try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                switch TrashMover.move(url) {
+                case .success:
                     reclaimed += size
                     moved += 1
-                } catch {
-                    if firstError == nil { firstError = error.localizedDescription }
+                case .failure(let error):
+                    if firstError == nil { firstError = error.message }
                 }
             }
         }
@@ -222,6 +234,7 @@ enum CleanupScanner {
     private static func allocatedSize(_ url: URL) -> Int64 {
         let keySet = Set(sizeKeys)
         let values = try? url.resourceValues(forKeys: keySet)
+        if values?.isSymbolicLink == true { return fileSize(values) }
         guard values?.isDirectory == true else { return fileSize(values) }
 
         guard let enumerator = FileManager.default.enumerator(
@@ -234,8 +247,13 @@ enum CleanupScanner {
 
         var total: Int64 = 0
         for case let child as URL in enumerator {
-            guard let childValues = try? child.resourceValues(forKeys: keySet),
-                  childValues.isDirectory != true else { continue }
+            guard let childValues = try? child.resourceValues(forKeys: keySet) else { continue }
+            if childValues.isSymbolicLink == true {
+                total += fileSize(childValues)
+                enumerator.skipDescendants()
+                continue
+            }
+            if childValues.isDirectory == true { continue }
             total += fileSize(childValues)
         }
         return total

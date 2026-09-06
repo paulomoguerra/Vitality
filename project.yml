@@ -36,6 +36,10 @@ targets:
         LSUIElement: true
         CFBundleDisplayName: Vitality
         NSHumanReadableCopyright: ""
+        CFBundleURLTypes:
+          - CFBundleURLName: com.paulomateus.vitality.dashboard
+            CFBundleURLSchemes:
+              - vitality
         # Read at runtime so no team ID is hardcoded in source. See AppGroup.id.
         VitalityAppGroup: $(DEVELOPMENT_TEAM).group.com.paulomateus.vitality
     entitlements:
@@ -61,12 +65,16 @@ targets:
     platform: macOS
     sources:
       - path: VitalityTests
+      - path: Vitality/DiskAnalyzer.swift
+      - path: Vitality/VolumeMetricsProvider.swift
       - path: Vitality/DuplicateAnalyzer.swift
       - path: Vitality/HealthScore.swift
       - path: Vitality/CleanupScanner.swift
       - path: Vitality/HistoryTier.swift
       - path: Vitality/ActionError.swift
+      - path: VitalityShared/StatusFreshness.swift
       - path: VitalityShared/SystemStatus.swift
+      - path: VitalityShared/Formatters.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.paulomateus.vitality.tests

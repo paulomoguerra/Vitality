@@ -77,7 +77,7 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
     /// reading crosses from 9% to 10%.
     var widestValue: String {
         switch self {
-        case .power, .powerIn:   return "88.8 W"
+        case .power, .powerIn:   return "888.8 W"
         // Three digits, not two: gigabit Ethernet and Wi-Fi 6 sit above
         // 100 MB/s routinely, and one extra digit would shove the whole
         // menu bar sideways at exactly the moment the number is interesting.

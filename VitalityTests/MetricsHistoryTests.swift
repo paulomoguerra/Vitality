@@ -212,4 +212,36 @@ final class MetricsHistoryTests: XCTestCase {
         XCTAssertEqual(restored.committed.count, 2)
         XCTAssertEqual(restored.committed.first?.average, 42)
     }
+
+    /// A relaunch in the middle of the last committed window used to open
+    /// that window again and commit a second point on the same timestamp.
+    func testRestoredBucketIsNotCommittedTwiceWhenSamplingResumesInTheSameWindow() {
+        var restored = HistoryTier(interval: 5, capacity: 3,
+                                   restoring: [bucket(0, average: 42, peak: 50)],
+                                   now: at(3))
+
+        XCTAssertFalse(restored.add(value: 10, at: at(3)))
+        restored.add(value: 10, at: at(5))
+        restored.add(value: 10, at: at(10))
+
+        XCTAssertEqual(restored.committed.map(\.date), [at(0), at(5)])
+        XCTAssertEqual(restored.committed.first?.average, 42)
+        XCTAssertEqual(restored.committed.first?.peak, 50)
+    }
+
+    /// Same hole as the reopen: after a restore the open-bucket guard is
+    /// gone, so a late sample from before the saved series would otherwise
+    /// commit a point behind the ones already on the chart.
+    func testSamplesOlderThanRestoredHistoryAreIgnored() {
+        var restored = HistoryTier(interval: 5, capacity: 3,
+                                   restoring: [bucket(10, average: 7, peak: 7)],
+                                   now: at(15))
+
+        XCTAssertFalse(restored.add(value: 99, at: at(2)))
+        restored.add(value: 1, at: at(15))
+        restored.add(value: 1, at: at(20))
+
+        XCTAssertEqual(restored.committed.map(\.date), [at(10), at(15)])
+        XCTAssertEqual(restored.committed.first?.average, 7)
+    }
 }

@@ -1,21 +1,6 @@
 import WidgetKit
 import SwiftUI
 
-private enum WidgetDataFreshness {
-    /// The app writes snapshots roughly every 30 seconds. Five minutes gives
-    /// that cadence room for brief pauses while still surfacing an interrupted
-    /// collector instead of presenting old metrics as current.
-    static let staleAfter: TimeInterval = 5 * 60
-
-    static func isStale(_ status: SystemStatus?, now: Date = Date()) -> Bool {
-        guard let status else { return false }
-        // A snapshot without a collection timestamp cannot prove freshness.
-        // Keep showing its metrics, but label them stale rather than guessing.
-        guard let collectedAt = status.collectedAt else { return true }
-        return now.timeIntervalSince(collectedAt) >= staleAfter
-    }
-}
-
 struct StatusEntry: TimelineEntry {
     let date: Date
     let status: SystemStatus?
@@ -30,7 +15,11 @@ struct StatusEntry: TimelineEntry {
         self.date = date
         self.status = status
         self.isMissingData = (status == nil)
-        self.isStale = WidgetDataFreshness.isStale(status, now: evaluatedAt)
+        // Unknown collection time is treated as stale in the presentation. A
+        // widget must never label an undated snapshot as live.
+        self.isStale = status.map {
+            StatusFreshness.state(collectedAt: $0.collectedAt, now: evaluatedAt) == .stale
+        } ?? false
     }
 }
 
@@ -44,14 +33,24 @@ struct StatusProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<StatusEntry>) -> Void) {
-        let entry = StatusEntry(date: Date(), status: SharedStatusStore.read())
+        let now = Date()
+        let status = SharedStatusStore.read()
+        var entries = [StatusEntry(date: now, status: status, evaluatedAt: now)]
 
-        // The app calls `WidgetCenter.reloadAllTimelines()` roughly every 30s
-        // while it's running, which is the real refresh path. This shorter
-        // fallback only matters if the app isn't running — in which case the
-        // data is stale anyway and there's nothing to gain from asking sooner.
-        let nextUpdate = Date().addingTimeInterval(2 * 60)
-        completion(Timeline(entries: [entry], policy: .after(nextUpdate)))
+        // WidgetKit snapshots the view. Without a second entry at the stale
+        // boundary, a checkmark stays up until the next reload — up to minutes
+        // after StatusFreshness.staleAfter.
+        if let collectedAt = status?.collectedAt {
+            let staleAt = collectedAt.addingTimeInterval(StatusFreshness.staleAfter)
+            if staleAt > now {
+                entries.append(StatusEntry(date: staleAt, status: status, evaluatedAt: staleAt))
+            }
+        }
+
+        let policy: TimelineReloadPolicy = entries.count > 1
+            ? .atEnd
+            : .after(now.addingTimeInterval(2 * 60))
+        completion(Timeline(entries: entries, policy: policy))
     }
 }
 
@@ -61,7 +60,8 @@ struct SystemStatusWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: StatusProvider()) { entry in
             StatusWidgetView(entry: entry)
-                .containerBackground(.fill.tertiary, for: .widget)
+                .containerBackground(Theme.pageBg, for: .widget)
+                .preferredColorScheme(.dark)
         }
         .configurationDisplayName("Mac vital signs")
         .description("Health score, CPU, memory, disk and power at a glance.")

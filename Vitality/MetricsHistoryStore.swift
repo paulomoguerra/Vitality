@@ -16,6 +16,8 @@ enum HistoryRange: String, CaseIterable, Identifiable {
         }
     }
 
+    var showsCalendarDate: Bool { self != .hour }
+
     /// How much time one bucket covers.
     ///
     /// The three tiers are sized so each holds roughly a thousand points: fine

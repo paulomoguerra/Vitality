@@ -81,6 +81,11 @@ final class ThermalMonitor {
     /// empty Sensors tab for five seconds.
     private var pollsSinceSweep = ThermalMonitor.slowSweepInterval
 
+    /// A single busy/timeout nil is not "unsupported forever". Three in a row
+    /// is enough to stop paying a kernel trip that will not recover.
+    private var consecutiveNilReads: [UInt32: Int] = [:]
+    private static let retireAfterNilReads = 3
+
     init() { smc = SMC() }
 
     /// `nil` when this Mac exposes no usable sensors, so the UI can leave the
@@ -96,9 +101,8 @@ final class ThermalMonitor {
         }
         guard !fast.isEmpty || !slow.isEmpty else { return nil }
 
-        // A sensor whose read returns nil is unsupported rather than idle — the
-        // driver has no answer for it and never will. Reading it again every
-        // second is a kernel round trip that can only fail, so drop it for good.
+        // A sensor whose read returns nil may be busy, not unsupported. Drop
+        // it only after repeated failures; one timeout must not blank Sensors.
         var deadKeys: Set<UInt32> = []
 
         let (readings, means, hottestFast) = read(fast, using: smc, into: &deadKeys)
@@ -113,6 +117,7 @@ final class ThermalMonitor {
         if !deadKeys.isEmpty {
             fast.removeAll { deadKeys.contains($0.sensor.key) }
             slow.removeAll { deadKeys.contains($0.sensor.key) }
+            for key in deadKeys { consecutiveNilReads.removeValue(forKey: key) }
         }
 
         // Both lists were sorted by key at discovery and no group spans the two,
@@ -158,9 +163,14 @@ final class ThermalMonitor {
 
         for probe in probes {
             guard let celsius = smc.read(probe.sensor) else {
-                dead.insert(probe.sensor.key)
+                let misses = (consecutiveNilReads[probe.sensor.key] ?? 0) + 1
+                consecutiveNilReads[probe.sensor.key] = misses
+                if misses >= Self.retireAfterNilReads {
+                    dead.insert(probe.sensor.key)
+                }
                 continue
             }
+            consecutiveNilReads[probe.sensor.key] = 0
             guard Self.isPlausible(celsius) else { continue }
 
             if let group = probe.group { byGroup[group, default: []].append(celsius) }

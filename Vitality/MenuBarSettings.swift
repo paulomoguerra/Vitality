@@ -32,6 +32,7 @@ final class MenuBarSettings: ObservableObject {
         static let showsGraph = "menuBar.showsGraph"
         static let showsAppIcon = "menuBar.showsAppIcon"
         static let launchAtLogin = "menuBar.launchAtLogin"
+        static let launchAtLoginConfigured = "menuBar.launchAtLoginConfigured"
     }
 
     @Published var metrics: Set<MenuBarMetric> { didSet { save() } }
@@ -39,9 +40,22 @@ final class MenuBarSettings: ObservableObject {
     @Published var colorMode: MenuBarColorMode { didSet { save() } }
     @Published var showsGraph: Bool { didSet { save() } }
     @Published var showsAppIcon: Bool { didSet { save() } }
-    /// Defaults to the previous first-launch behaviour; a false value is
-    /// persisted so an explicit opt-out is not undone on the next launch.
-    @Published var launchAtLogin: Bool { didSet { save() } }
+    /// Defaults to off. Registration is only applied after the person changes
+    /// this setting, so the first launch never creates a login item silently.
+    @Published var launchAtLogin: Bool {
+        didSet {
+            save()
+            // Only this control is an explicit consent event. Changing a
+            // display metric must not make startup look configured.
+            hasConfiguredLaunchAtLogin = true
+            defaults.set(true, forKey: Key.launchAtLoginConfigured)
+        }
+    }
+
+    /// Distinguishes an explicit preference from the first-run default. This
+    /// lets the app avoid touching ServiceManagement during startup while still
+    /// applying a choice made later in Settings.
+    private(set) var hasConfiguredLaunchAtLogin: Bool
 
     private let defaults: UserDefaults
 
@@ -61,7 +75,8 @@ final class MenuBarSettings: ObservableObject {
             .flatMap(MenuBarColorMode.init(rawValue:)) ?? .warnings
         showsGraph = defaults.object(forKey: Key.showsGraph) as? Bool ?? false
         showsAppIcon = defaults.object(forKey: Key.showsAppIcon) as? Bool ?? true
-        launchAtLogin = defaults.object(forKey: Key.launchAtLogin) as? Bool ?? true
+        launchAtLogin = defaults.object(forKey: Key.launchAtLogin) as? Bool ?? false
+        hasConfiguredLaunchAtLogin = defaults.object(forKey: Key.launchAtLoginConfigured) as? Bool ?? false
     }
 
     /// Selected metrics in canonical order.

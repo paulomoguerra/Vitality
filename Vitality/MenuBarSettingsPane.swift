@@ -1,11 +1,8 @@
+import AppKit
 import SwiftUI
 
-/// Chooses what rides in the menu bar, and how it looks.
-///
-/// Lives in the popover rather than a Settings window: the thing being
-/// configured is two inches above the pane, and every change lands there live
-/// as it is made. A separate window would put the preference further from the
-/// result it changes.
+/// Legacy compact configuration pane kept for the popover's detail route.
+/// The canonical configuration now lives in the native Settings scene below.
 struct MenuBarSettingsPane: View {
     @ObservedObject var settings: MenuBarSettings
     @ObservedObject var history: MenuBarHistory
@@ -29,7 +26,7 @@ struct MenuBarSettingsPane: View {
 
             sectionLabel("Appearance")
 
-            settingRow("Colour") {
+            settingRow("Color") {
                 Picker("", selection: $settings.colorMode) {
                     ForEach(MenuBarColorMode.allCases) { mode in
                         Text(mode.title).tag(mode)
@@ -62,7 +59,7 @@ struct MenuBarSettingsPane: View {
             Divider().padding(.vertical, 8)
 
             sectionLabel("Startup")
-            toggleRow("Launch at login", isOn: $settings.launchAtLogin)
+            toggleRow("Launch Vitality at login", isOn: $settings.launchAtLogin)
         }
         .padding(.bottom, 6)
     }
@@ -138,6 +135,274 @@ struct MenuBarSettingsPane: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Native Settings
+
+/// Root for the macOS Settings scene. Keeping this as a real Settings scene
+/// gives users the expected Command-comma entry point and a stable place for
+/// preferences that do not belong in the compact menu bar popover.
+struct SettingsRootView: View {
+    @ObservedObject var appDelegate: AppDelegate
+
+    var body: some View {
+        TabView {
+            Group {
+                if let poller = appDelegate.statusPollerForUI,
+                   let history = appDelegate.menuBarHistoryForUI {
+                    SettingsMenuBarTab(settings: appDelegate.settingsForUI,
+                                       poller: poller, history: history)
+                } else {
+                    SettingsUnavailableTab(title: "Menu bar", message: "Start Vitality to edit menu bar preferences.")
+                }
+            }
+            .tabItem { Label("Menu bar", systemImage: "menubar.rectangle") }
+
+            Group {
+                if let alerts = appDelegate.alertCenterForUI {
+                    AlertsPreferencesView(alerts: alerts)
+                } else {
+                    SettingsUnavailableTab(title: "Alerts", message: "Alerts become available when Vitality starts monitoring this Mac.")
+                }
+            }
+            .tabItem { Label("Alerts", systemImage: "bell") }
+
+            GeneralPreferencesView(settings: appDelegate.settingsForUI)
+                .tabItem { Label("General", systemImage: "gearshape") }
+
+            AboutPreferencesView()
+                .tabItem { Label("About", systemImage: "info.circle") }
+        }
+        .formStyle(.grouped)
+        .padding(24)
+        .frame(minWidth: 620, minHeight: 450)
+        .preferredColorScheme(.dark)
+    }
+}
+
+private struct SettingsUnavailableTab: View {
+    let title: String
+    let message: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.title2.weight(.semibold))
+            Text(message).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct SettingsMenuBarTab: View {
+    @ObservedObject var settings: MenuBarSettings
+    @ObservedObject var poller: StatusPoller
+    @ObservedObject var history: MenuBarHistory
+
+    var body: some View {
+        MenuBarPreferencesView(settings: settings, history: history, status: poller.latest)
+    }
+}
+
+private struct MenuBarPreferencesView: View {
+    @ObservedObject var settings: MenuBarSettings
+    @ObservedObject var history: MenuBarHistory
+    let status: SystemStatus?
+
+    var body: some View {
+        Form {
+            Section {
+                menuBarPreview
+                Text("The preview updates as you change these choices.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Menu bar metrics")
+            }
+
+            Section {
+                ForEach(MenuBarMetric.allCases) { metric in
+                    HStack(spacing: 12) {
+                        Label(metric.label, systemImage: metric.icon)
+                        Spacer()
+                        Text(metric.reading(from: status).text)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                        Toggle("Show \(metric.label)", isOn: settings.binding(for: metric))
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .accessibilityLabel("Show \(metric.label)")
+                    }
+                    .frame(minHeight: 32)
+                }
+            } header: {
+                Text("Show")
+            }
+
+            Section {
+                Picker("Color", selection: $settings.colorMode) {
+                    ForEach(MenuBarColorMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                Toggle("Show labels", isOn: $settings.showsLabels)
+                Toggle("Show graph", isOn: $settings.showsGraph)
+                Toggle("Show Vitality icon", isOn: $settings.showsAppIcon)
+            } header: {
+                Text("Appearance")
+            } footer: {
+                Text("Graphs show the last 40 seconds for readings that change quickly.")
+            }
+        }
+        .scrollContentBackground(.hidden)
+    }
+
+    private var menuBarPreview: some View {
+        MenuBarStrip(status: status, settings: settings, samples: history.samples(for:))
+            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            .padding(.horizontal, 10)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.cardBorder))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Menu bar preview")
+    }
+}
+
+private struct AlertsPreferencesView: View {
+    @ObservedObject var alerts: AlertCenter
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Send notifications", isOn: $alerts.notificationsEnabled)
+                Text("Vitality keeps showing active alerts in the dashboard when notifications are off.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Notifications")
+            }
+
+            Section {
+                ForEach(AlertCenter.allRules) { rule in
+                    HStack(alignment: .top, spacing: 12) {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(rule.title)
+                                Text(rule.detail)
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: rule.icon)
+                                .frame(width: 18)
+                        }
+                        Spacer()
+                        Toggle("Monitor \(rule.title)", isOn: alerts.binding(for: rule.id))
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .accessibilityLabel("Monitor \(rule.title)")
+                    }
+                    .frame(minHeight: 38)
+                }
+            } header: {
+                Text("Rules")
+            }
+        }
+        .scrollContentBackground(.hidden)
+    }
+}
+
+private struct GeneralPreferencesView: View {
+    @ObservedObject var settings: MenuBarSettings
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Launch Vitality at login", isOn: $settings.launchAtLogin)
+                Text("Vitality asks macOS to keep the monitor available after you sign in. It does not enable this on first launch.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Startup")
+            }
+
+            Section {
+                Label("Local monitoring", systemImage: "lock.shield")
+                Text("Metrics stay on this Mac. Vitality does not require an account or send telemetry.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Privacy")
+            }
+        }
+        .scrollContentBackground(.hidden)
+    }
+}
+
+private struct AboutPreferencesView: View {
+    @State private var copied = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 14) {
+                    Image(systemName: "gauge.medium")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .frame(width: 52, height: 52)
+                        .background(Theme.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Vitality").font(.title2.weight(.semibold))
+                        Text("A calm, local system monitor for Mac.")
+                            .foregroundStyle(.secondary)
+                        Text("Version 1.0")
+                            .font(.callout.monospacedDigit())
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
+                Divider()
+
+                Text("Support Vitality")
+                    .font(.headline)
+                Text("Vitality is free and local. If it earned a place in your menu bar, a coffee over Lightning helps keep it maintained.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let qr = Support.qrImage {
+                    Image(nsImage: qr)
+                        .resizable()
+                        .interpolation(.none)
+                        .frame(width: 132, height: 132)
+                        .padding(10)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.primary.opacity(0.12)))
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
+
+                Text(Support.abbreviated)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                HStack {
+                    Button(copied ? "Copied address" : "Copy Lightning address") {
+                        Support.copyToPasteboard()
+                        copied = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Theme.accent)
+                    if let walletURL = Support.walletURL {
+                        Button("Open wallet") { NSWorkspace.shared.open(walletURL) }
+                            .buttonStyle(.bordered)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .padding(20)
+            .frame(maxWidth: 560, alignment: .leading)
+        }
+        .scrollContentBackground(.hidden)
     }
 }
 
