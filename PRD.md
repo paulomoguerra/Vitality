@@ -1,5 +1,10 @@
 # PRD — Vitality redesign
 
+**On hold — Mateus, 2026-09-09.** Active portfolio: One Studio site/operations,
+Nabuco / Clientes IA, Helena, and Onekept. Revisit Leader Suite after both Onekept
+and Helena launch; consider this project then only if Mateus selects it. Preserve
+existing work. Plans and next actions below are deferred, not current commitments.
+
 > Menu bar + dashboard + widgets do Mac: ver o que está errado, e agir.
 > Versão 0.1 — 2026-08-28 · Autor: Mateus (One Studio) · Status: rascunho para análise — **não implementar ainda**
 

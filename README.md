@@ -1,5 +1,10 @@
 # Vitality
 
+**On hold — Mateus, 2026-09-09.** Active portfolio: One Studio site/operations,
+Nabuco / Clientes IA, Helena, and Onekept. Revisit Leader Suite after both Onekept
+and Helena launch; consider this project then only if Mateus selects it. Preserve
+existing work. Plans and next actions below are deferred, not current commitments.
+
 A native macOS menu bar app, dashboard, and Notification Centre widget that shows your Mac's vital signs at a glance — and lets you act on them.
 
 **No dependencies.** Vitality measures everything itself. Nothing to install first, nothing to configure.
